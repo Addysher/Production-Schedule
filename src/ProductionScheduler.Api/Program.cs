@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
 using ProductionScheduler.Infrastructure.Auth;
+using ProductionScheduler.Scheduling.BackgroundServices;
 using ProductionScheduler.Scheduling;
 using ProductionScheduler.Scheduling.ConstraintResolution;
 
@@ -27,6 +28,12 @@ builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ISetupResolver, SetupResolver>();
 builder.Services.AddScoped<IScheduleGenerationService, ScheduleGenerationService>();
 builder.Services.AddScoped<IJobStatusService, JobStatusService>();
+
+builder.Services.AddHostedService<MmeFileWatcherService>();
+builder.Services.AddHostedService<SchImportService>();
+builder.Services.AddHostedService<BatchcutWatcherService>();
+builder.Services.AddHostedService<PrdReaderService>();
+builder.Services.AddHostedService<NightlyMaintenanceService>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt configuration section is missing.");
