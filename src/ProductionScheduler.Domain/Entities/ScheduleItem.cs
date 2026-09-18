@@ -1,0 +1,36 @@
+namespace ProductionScheduler.Domain.Entities;
+
+public class ScheduleItem
+{
+    public int Id { get; set; }
+    public string JobRef { get; set; } = null!;
+    public Job Job { get; set; } = null!;
+    public int StationId { get; set; }
+    public Station Station { get; set; } = null!;
+    public int? OperatorId { get; set; }
+    public Operator? Operator { get; set; }
+    public DateOnly ScheduleDate { get; set; }
+
+    // Planned (set by scheduler)
+    public DateTime PlannedStart { get; set; }
+    public DateTime PlannedEnd { get; set; }
+    public decimal PlannedEqA { get; set; }
+    public int MembersTotal { get; set; }
+
+    // Actuals (updated by PRD reader)
+    public DateTime? ActualStart { get; set; }
+    public DateTime? ActualEnd { get; set; }
+    public decimal EqaCompleted { get; set; }
+    public int MembersCompleted { get; set; }
+
+    // Job creep tracking
+    public bool CreepDetected { get; set; }
+    public DateTime? CreepDetectedAt { get; set; }
+    public DateTime? CreepApprovedAt { get; set; }
+    public int? CreepApprovedByUserId { get; set; }
+    public User? CreepApprovedByUser { get; set; }
+
+    public DateTime GeneratedAt { get; set; }
+    public bool IsArchived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
+}

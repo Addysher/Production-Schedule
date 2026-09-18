@@ -1,0 +1,19 @@
+## .NET
+bin/
+obj/
+*.user
+
+## VS Code
+.vs/
+
+## Node / React (client, added later)
+node_modules/
+dist/
+build/
+
+## EF Core
+*.dbmdl
+
+## OS
+.DS_Store
+Thumbs.db
