@@ -6,6 +6,8 @@ using Microsoft.IdentityModel.Tokens;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
 using ProductionScheduler.Infrastructure.Auth;
+using ProductionScheduler.Scheduling;
+using ProductionScheduler.Scheduling.ConstraintResolution;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +23,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
+builder.Services.AddScoped<ISetupResolver, SetupResolver>();
+builder.Services.AddScoped<IScheduleGenerationService, ScheduleGenerationService>();
+builder.Services.AddScoped<IJobStatusService, JobStatusService>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt configuration section is missing.");
@@ -53,7 +59,7 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi().AllowAnonymous();
 }
 
 app.UseHttpsRedirection();
