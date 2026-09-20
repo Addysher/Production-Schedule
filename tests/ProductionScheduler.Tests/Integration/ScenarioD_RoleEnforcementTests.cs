@@ -94,7 +94,7 @@ public class ScenarioD_RoleEnforcementTests
         foreach (var path in new[]
                  {
                      "/api/jobs", "/api/jobs/status-refresh", "/api/schedule/current", "/api/schedule/export",
-                     "/api/stations", "/api/jobtypes", "/api/maintenance-logs",
+                     "/api/stations", "/api/jobtypes", "/api/maintenance-logs", "/api/stations/1/capacity-overrides",
                  })
         {
             Assert.Equal(HttpStatusCode.OK, (await viewer.GetAsync(path)).StatusCode);
@@ -102,7 +102,7 @@ public class ScenarioD_RoleEnforcementTests
 
         foreach (var path in new[]
                  {
-                     "/api/users", "/api/settings", "/api/operators", "/api/shifts", "/api/stations/1/capacity-overrides",
+                     "/api/users", "/api/settings", "/api/operators", "/api/shifts",
                      "/api/admin/sch-import-paths", "/api/admin/batchcut-watch-paths", "/api/admin/batchcut-events",
                  })
         {

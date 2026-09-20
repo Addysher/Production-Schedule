@@ -28,14 +28,10 @@ public class QuoteController : ControllerBase
             return BadRequest("At least one line item is required.");
         }
 
-        var settings = await _db.Settings.AsNoTracking().ToDictionaryAsync(s => s.Key, s => s.Value);
-        var shiftStartHour = int.Parse(settings.GetValueOrDefault("ShiftStartHour", "6"));
-        var shiftEndHour = int.Parse(settings.GetValueOrDefault("ShiftEndHour", "18"));
-        var workingDays = settings.GetValueOrDefault("WorkingDays", "1,2,3,4,5")
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(int.Parse)
-            .ToHashSet();
-
+        var calendar = await WorkCalendarSettings.LoadAsync(_db);
+        var shiftStartHour = calendar.ShiftStartHour;
+        var shiftEndHour = calendar.ShiftEndHour;
+        var workingDays = calendar.WorkingDays;
         var now = SiteClock.Now;
         var results = new List<QuoteLineResult>();
 
@@ -58,7 +54,7 @@ public class QuoteController : ControllerBase
             var queueTail = maxCompletion is DateTime tail && tail > now ? tail : now;
 
             var durationMinutes = (double)(jobType.MinsPerUnit * line.Qty);
-            var completion = WorkingCalendar.PlaceDuration(queueTail, durationMinutes, shiftStartHour, shiftEndHour, workingDays);
+            var completion = WorkingCalendar.PlaceDuration(queueTail, durationMinutes, shiftStartHour, shiftEndHour, workingDays, calendar.Breaks);
 
             results.Add(new QuoteLineResult(jobType.Id, jobType.Name, line.Qty, completion));
         }

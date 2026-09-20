@@ -4,6 +4,7 @@ import { jobsApi } from '../api/jobs'
 import { scheduleApi } from '../api/schedule'
 import { stationsApi } from '../api/stations'
 import { logsApi } from '../api/logs'
+import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
 import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, CapacityOverrideDto } from '../types/api'
 import type { MaintenanceLogDto } from '../types/logs'
@@ -49,20 +50,23 @@ export function DashboardView() {
   const [stations, setStations] = useState<StationDto[]>([])
   const [overridesByStation, setOverridesByStation] = useState<Record<number, CapacityOverrideDto[]>>({})
   const [logs, setLogs] = useState<MaintenanceLogDto[]>([])
+  const [producedToday, setProducedToday] = useState<Record<number, number>>({})
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [onlyLate, setOnlyLate] = useState(false)
 
   async function refresh() {
-    const [jobList, scheduleItems, stationList, recentLogs] = await Promise.all([
+    const [jobList, scheduleItems, stationList, recentLogs, produced] = await Promise.all([
       jobsApi.getAll(),
       scheduleApi.getCurrent(),
       stationsApi.getAll(),
       logsApi.getMaintenanceLogs(50),
+      reportsApi.production(localIsoDate(new Date()), localIsoDate(new Date())),
     ])
     setJobs(jobList)
     setItems(scheduleItems)
     setStations(stationList.filter((s) => s.isActive))
     setLogs(recentLogs)
+    setProducedToday(Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])))
 
     const today = localIsoDate(new Date())
     const overrideEntries = await Promise.all(
@@ -77,7 +81,6 @@ export function DashboardView() {
     refresh().catch(() => {})
   }, [])
 
-  const today = localIsoDate(new Date())
   const runningCount = jobs.filter((j) => j.status === 'in-production').length
   const lateCount = jobs.filter((j) => j.isLate).length
   const onTimeCount = jobs.filter((j) => !j.isLate && j.status !== 'completed').length
@@ -122,8 +125,7 @@ export function DashboardView() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 24 }}>
             {stations.map((station) => {
               const stationItems = items.filter((i) => i.stationId === station.id)
-              const todayItems = stationItems.filter((i) => i.scheduleDate.slice(0, 10) === today)
-              const totalEqAToday = todayItems.reduce((sum, i) => sum + i.eqaCompleted, 0)
+              const totalEqAToday = producedToday[station.id] ?? 0
               const current = stationItems.find((i) => i.actualStart && !i.actualEnd)
               const next = stationItems
                 .filter((i) => !i.actualStart)

@@ -9,7 +9,7 @@ public record JobSummaryDto(
 public record JobDetailDto(
     int Id, string JobRef, string? ComponentType, string? ClientName, string? SiteAddress, string? SiteSuburb,
     string? SupervisorName, string? SupervisorNumber, DateOnly? JobOrderDate, TimeOnly? JobOrderTime,
-    decimal? TotalEqA, DateTime? EstimatedStartDate, DateTime? EstimatedCompletionDate,
+    decimal? TotalEqA, decimal CompletedEqA, DateTime? EstimatedStartDate, DateTime? EstimatedCompletionDate,
     DateOnly? ExpectedDeliveryDate, DateOnly? EstBookedDeliveryDate, DateOnly? BookedDeliveryDate,
     string? InvoiceNumber, bool Delivered, string Status, bool IsLate, string DesignStatus,
     int? AssignedStationId, bool IsManuallyScheduled, int? ManualStationId, DateOnly? ManualScheduleDate);

@@ -1,19 +1,26 @@
 import { useEffect, useState } from 'react'
 import { jobsApi } from '../api/jobs'
 import { useAuth } from '../auth/AuthContext'
-import type { JobDetailDto, JobSummaryDto, UpdateJobRequest } from '../types/api'
+import type { JobDetailDto, JobStatus, JobSummaryDto, UpdateJobRequest } from '../types/api'
 import { StatusPill } from '../components/StatusPill'
+import { resolveStatusStyle } from '../components/statusStyles'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { JobEditModal } from '../components/JobEditModal'
+import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
+
+const STATUSES: JobStatus[] = ['scheduled', 'ready', 'approved', 'cut', 'in-production', 'completed']
 
 export function JobsView() {
   const { user } = useAuth()
   const [jobs, setJobs] = useState<JobSummaryDto[]>([])
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [editingJob, setEditingJob] = useState<JobDetailDto | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [pinningJob, setPinningJob] = useState<JobDetailDto | null>(null)
+  const [statusFilter, setStatusFilter] = useState<JobStatus | 'late' | ''>('')
   const [componentFilter, setComponentFilter] = useState('')
+  const [dueFrom, setDueFrom] = useState('')
+  const [dueTo, setDueTo] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
 
@@ -25,23 +32,21 @@ export function JobsView() {
     refresh().catch(() => {})
   }, [])
 
-  const onTimeCount = jobs.filter((j) => !j.isLate && j.status !== 'completed').length
+  const countFor = (s: JobStatus) => jobs.filter((j) => j.status === s && !(j.isLate && s !== 'completed')).length
   const lateCount = jobs.filter((j) => j.isLate).length
-
   const componentTypes = Array.from(new Set(jobs.map((j) => j.componentType).filter((c): c is string => !!c)))
 
-  const filtered = jobs.filter(
-    (j) => (!statusFilter || j.status === statusFilter) && (!componentFilter || j.componentType === componentFilter),
-  )
+  const filtered = jobs.filter((j) => {
+    if (statusFilter === 'late' ? !j.isLate : statusFilter && j.status !== statusFilter) return false
+    if (componentFilter && j.componentType !== componentFilter) return false
+    if (dueFrom && (!j.dueDate || j.dueDate.slice(0, 10) < dueFrom)) return false
+    if (dueTo && (!j.dueDate || j.dueDate.slice(0, 10) > dueTo)) return false
+    return true
+  })
 
-  async function view(jobRef: string) {
+  const detailOf = async (jobRef: string) => {
     const summary = jobs.find((j) => j.jobRef === jobRef)
-    if (summary) setSelectedJob(await jobsApi.getById(summary.id))
-  }
-
-  async function edit(jobRef: string) {
-    const summary = jobs.find((j) => j.jobRef === jobRef)
-    if (summary) setEditingJob(await jobsApi.getById(summary.id))
+    return summary ? jobsApi.getById(summary.id) : null
   }
 
   async function remove(jobRef: string, id: number) {
@@ -67,8 +72,7 @@ export function JobsView() {
     setBusy(true)
     try {
       for (const jobRef of selected) {
-        const job = jobs.find((j) => j.jobRef === jobRef)
-        if (job?.status === 'ready') {
+        if (jobs.find((j) => j.jobRef === jobRef)?.status === 'ready') {
           await jobsApi.approveForCutting(jobRef).catch(() => {})
         }
       }
@@ -83,10 +87,9 @@ export function JobsView() {
     setBusy(true)
     try {
       for (const jobRef of selected) {
-        const job = jobs.find((j) => j.jobRef === jobRef)
-        if (job) {
-          const detail = await jobsApi.getById(job.id)
-          await jobsApi.update(job.id, {
+        const detail = await detailOf(jobRef)
+        if (detail) {
+          await jobsApi.update(detail.id, {
             supervisorName: detail.supervisorName,
             supervisorNumber: detail.supervisorNumber,
             bookedDeliveryDate: detail.bookedDeliveryDate,
@@ -102,19 +105,34 @@ export function JobsView() {
     }
   }
 
+  const canPin = (job: { status: JobStatus; componentType: string | null }) =>
+    !!user?.isAdmin && (job.status === 'ready' || job.status === 'approved') && !!job.componentType
+
+  const chip = (label: string, count: number, value: JobStatus | 'late' | '', color?: string) => (
+    <button
+      key={label}
+      className="btn btn-secondary"
+      onClick={() => setStatusFilter(statusFilter === value ? '' : value)}
+      style={{
+        color: color ?? 'var(--brand-primary)',
+        borderColor: color ?? 'var(--brand-primary)',
+        background: statusFilter === value && value !== '' ? '#f1f5f9' : '#fff',
+        fontWeight: statusFilter === value && value !== '' ? 800 : 600,
+      }}
+    >
+      {label}: {count}
+    </button>
+  )
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ marginTop: 0 }}>Jobs</h2>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <span className="btn btn-secondary" style={{ cursor: 'default' }}>
-              On time: {onTimeCount}
-            </span>
-            <span className="btn btn-secondary" style={{ cursor: 'default', color: '#ef4444', borderColor: '#ef4444' }}>
-              Late: {lateCount}
-            </span>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            {STATUSES.map((s) => chip(resolveStatusStyle(s, false).label, countFor(s), s, resolveStatusStyle(s, false).border))}
+            {chip('Late', lateCount, 'late', '#ef4444')}
           </div>
 
           <div className="card">
@@ -147,19 +165,20 @@ export function JobsView() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => view(j.jobRef)}>
+                        <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setSelectedJob(await detailOf(j.jobRef))}>
                           View
                         </button>
                         {user?.isAdmin && (
                           <>
-                            <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => edit(j.jobRef)}>
+                            <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setEditingJob(await detailOf(j.jobRef))}>
                               Edit
                             </button>
-                            <button
-                              className="btn btn-danger"
-                              style={{ padding: '3px 8px', fontSize: 12 }}
-                              onClick={() => remove(j.jobRef, j.id)}
-                            >
+                            {canPin(j) && (
+                              <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setPinningJob(await detailOf(j.jobRef))}>
+                                Schedule
+                              </button>
+                            )}
+                            <button className="btn btn-danger" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => remove(j.jobRef, j.id)}>
                               Delete
                             </button>
                           </>
@@ -183,18 +202,6 @@ export function JobsView() {
         <CollapsibleSidePanel viewKey="jobs" title="Filters">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <label>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status</div>
-              <select style={{ width: '100%' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                <option value="">All</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="ready">Ready for production</option>
-                <option value="approved">Approved</option>
-                <option value="cut">Cut and ready</option>
-                <option value="in-production">In production</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-            <label>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Component Type</div>
               <select style={{ width: '100%' }} value={componentFilter} onChange={(e) => setComponentFilter(e.target.value)}>
                 <option value="">All</option>
@@ -205,6 +212,26 @@ export function JobsView() {
                 ))}
               </select>
             </label>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Due date</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} aria-label="Due from" />
+                <input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} aria-label="Due to" />
+              </div>
+            </div>
+            {(statusFilter || componentFilter || dueFrom || dueTo) && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setStatusFilter('')
+                  setComponentFilter('')
+                  setDueFrom('')
+                  setDueTo('')
+                }}
+              >
+                Clear filters
+              </button>
+            )}
 
             {user?.isAdmin && (
               <div>
@@ -244,9 +271,27 @@ export function JobsView() {
                 }
               : undefined
           }
+          onScheduleManually={
+            canPin(selectedJob)
+              ? () => {
+                  setPinningJob(selectedJob)
+                  setSelectedJob(null)
+                }
+              : undefined
+          }
         />
       )}
       {editingJob && <JobEditModal job={editingJob} onClose={() => setEditingJob(null)} onSave={saveEdit} />}
+      {pinningJob && (
+        <ScheduleManuallyModal
+          job={pinningJob}
+          onClose={() => setPinningJob(null)}
+          onDone={() => {
+            setPinningJob(null)
+            refresh()
+          }}
+        />
+      )}
     </div>
   )
 }

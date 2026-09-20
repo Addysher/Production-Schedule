@@ -1,24 +1,19 @@
 import { useEffect, useState } from 'react'
 import {
-  jobTypesApi,
-  shiftsApi,
   usersApi,
   settingsApi,
   schImportPathsApi,
   batchcutWatchPathsApi,
 } from '../api/admin'
-import { stationsApi } from '../api/stations'
 import { logsApi } from '../api/logs'
 import type {
-  JobTypeDto,
-  ShiftDto,
   UserDto,
   SettingDto,
   SchImportPathDto,
   BatchcutWatchPathDto,
-  StationDto,
 } from '../types/api'
 import type { BatchcutEventDto } from '../types/logs'
+import { JobTypesSection, ShiftsSection, StationsSection } from './SettingsTables'
 
 type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'schpaths' | 'batchpaths' | 'batchlog'
 
@@ -64,228 +59,6 @@ export function SettingsView() {
       {tab === 'schpaths' && <SchPathsSection />}
       {tab === 'batchpaths' && <BatchPathsSection />}
       {tab === 'batchlog' && <BatchLogSection />}
-    </div>
-  )
-}
-
-function StationsSection() {
-  const [rows, setRows] = useState<StationDto[]>([])
-  const [form, setForm] = useState({ name: '', componentType: '', uncPath: '', dailyEqATarget: '' })
-
-  const load = () => stationsApi.getAll().then(setRows)
-  useEffect(() => {
-    load()
-  }, [])
-
-  async function add() {
-    if (!form.name || !form.componentType) return
-    await stationsApi.create({
-      name: form.name,
-      componentType: form.componentType,
-      uncPath: form.uncPath || null,
-      displayOrder: rows.length,
-      dailyEqATarget: form.dailyEqATarget ? Number(form.dailyEqATarget) : null,
-      archivePath: null,
-    })
-    setForm({ name: '', componentType: '', uncPath: '', dailyEqATarget: '' })
-    load()
-  }
-
-  async function toggleActive(s: StationDto) {
-    await stationsApi.update(s.id, { ...s, isActive: !s.isActive })
-    load()
-  }
-
-  return (
-    <div className="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Component Type</th>
-            <th>UNC Path</th>
-            <th>Daily EqA Target</th>
-            <th>Active</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((s) => (
-            <tr key={s.id}>
-              <td>{s.name}</td>
-              <td>{s.componentType}</td>
-              <td>{s.uncPath ?? '—'}</td>
-              <td>{s.dailyEqATarget ?? '—'}</td>
-              <td>{s.isActive ? 'Yes' : 'No'}</td>
-              <td>
-                <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => toggleActive(s)}>
-                  {s.isActive ? 'Deactivate' : 'Activate'}
-                </button>
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" />
-            </td>
-            <td>
-              <input
-                value={form.componentType}
-                onChange={(e) => setForm({ ...form, componentType: e.target.value })}
-                placeholder="ComponentType"
-              />
-            </td>
-            <td>
-              <input value={form.uncPath} onChange={(e) => setForm({ ...form, uncPath: e.target.value })} placeholder="\\server\\share" />
-            </td>
-            <td>
-              <input
-                type="number"
-                value={form.dailyEqATarget}
-                onChange={(e) => setForm({ ...form, dailyEqATarget: e.target.value })}
-                style={{ width: 80 }}
-              />
-            </td>
-            <td colSpan={2}>
-              <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={add}>
-                Add
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function JobTypesSection() {
-  const [rows, setRows] = useState<JobTypeDto[]>([])
-  const [form, setForm] = useState({ name: '', componentType: '', minsPerUnit: '' })
-
-  const load = () => jobTypesApi.getAll().then(setRows)
-  useEffect(() => {
-    load()
-  }, [])
-
-  async function add() {
-    if (!form.name || !form.minsPerUnit) return
-    await jobTypesApi.create({ name: form.name, componentType: form.componentType || null, minsPerUnit: Number(form.minsPerUnit), isActive: true })
-    setForm({ name: '', componentType: '', minsPerUnit: '' })
-    load()
-  }
-
-  async function toggleActive(t: JobTypeDto) {
-    await jobTypesApi.update(t.id, { name: t.name, componentType: t.componentType, minsPerUnit: t.minsPerUnit, isActive: !t.isActive })
-    load()
-  }
-
-  return (
-    <div className="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Component Type</th>
-            <th>Mins / Unit</th>
-            <th>Active</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((t) => (
-            <tr key={t.id}>
-              <td>{t.name}</td>
-              <td>{t.componentType ?? '—'}</td>
-              <td>{t.minsPerUnit}</td>
-              <td>{t.isActive ? 'Yes' : 'No'}</td>
-              <td>
-                <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => toggleActive(t)}>
-                  {t.isActive ? 'Deactivate' : 'Activate'}
-                </button>
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" />
-            </td>
-            <td>
-              <input value={form.componentType} onChange={(e) => setForm({ ...form, componentType: e.target.value })} placeholder="ComponentType" />
-            </td>
-            <td>
-              <input
-                type="number"
-                value={form.minsPerUnit}
-                onChange={(e) => setForm({ ...form, minsPerUnit: e.target.value })}
-                style={{ width: 80 }}
-              />
-            </td>
-            <td colSpan={2}>
-              <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={add}>
-                Add
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function ShiftsSection() {
-  const [rows, setRows] = useState<ShiftDto[]>([])
-  const [form, setForm] = useState({ name: '', startTime: '06:00', endTime: '18:00' })
-
-  const load = () => shiftsApi.getAll().then(setRows)
-  useEffect(() => {
-    load()
-  }, [])
-
-  async function add() {
-    if (!form.name) return
-    await shiftsApi.create({ name: form.name, startTime: form.startTime, endTime: form.endTime, isActive: true, breaks: [] })
-    setForm({ name: '', startTime: '06:00', endTime: '18:00' })
-    load()
-  }
-
-  return (
-    <div className="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Start</th>
-            <th>End</th>
-            <th>Breaks</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((s) => (
-            <tr key={s.id}>
-              <td>{s.name}</td>
-              <td>{s.startTime}</td>
-              <td>{s.endTime}</td>
-              <td>{s.breaks.length}</td>
-            </tr>
-          ))}
-          <tr>
-            <td>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" />
-            </td>
-            <td>
-              <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
-            </td>
-            <td>
-              <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
-            </td>
-            <td>
-              <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={add}>
-                Add
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   )
 }

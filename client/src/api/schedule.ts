@@ -1,8 +1,9 @@
 import { apiClient } from './client'
-import type { ScheduleGenerationResult, ScheduleItemDto } from '../types/api'
+import type { CalendarSettingsDto, ScheduleGenerationResult, ScheduleItemDto } from '../types/api'
 
 export const scheduleApi = {
   getCurrent: () => apiClient.get<ScheduleItemDto[]>('/schedule/current').then((r) => r.data),
+  getCalendarSettings: () => apiClient.get<CalendarSettingsDto>('/schedule/calendar-settings').then((r) => r.data),
   generate: () => apiClient.post<ScheduleGenerationResult>('/schedule/generate').then((r) => r.data),
   exportUrl: (stationId?: number, dateFrom?: string, dateTo?: string) => {
     const params = new URLSearchParams()

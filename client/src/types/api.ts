@@ -112,6 +112,7 @@ export interface JobDetailDto {
   jobOrderDate: string | null
   jobOrderTime: string | null
   totalEqA: number | null
+  completedEqA: number
   estimatedStartDate: string | null
   estimatedCompletionDate: string | null
   expectedDeliveryDate: string | null
@@ -168,6 +169,13 @@ export interface UpdateJobResponse {
   schedule: ScheduleGenerationResult
 }
 
+export interface ScheduleSegmentDto {
+  date: string
+  start: string
+  end: string
+  plannedEqA: number
+}
+
 export interface ScheduleItemDto {
   id: number
   jobRef: string
@@ -187,6 +195,7 @@ export interface ScheduleItemDto {
   creepDetected: boolean
   creepApprovedAt: string | null
   jobStatus: JobStatus
+  segments: ScheduleSegmentDto[]
 }
 
 export interface QuoteLineRequest {
@@ -210,4 +219,29 @@ export interface QuoteEstimateResponse {
   ref: string
   lines: QuoteLineResult[]
   fullOrderReadyAt: string
+}
+
+export interface BreakDto {
+  start: string
+  end: string
+}
+
+export interface CalendarSettingsDto {
+  shiftStartHour: number
+  shiftEndHour: number
+  workingDays: number[]
+  breaks: BreakDto[]
+}
+
+export interface ProductionRowDto {
+  stationId: number
+  stationName: string
+  date: string
+  eqa: number
+}
+
+export interface NotificationSummaryDto {
+  newJobs: number
+  errors: number
+  serverNow: string
 }

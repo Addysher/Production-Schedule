@@ -144,7 +144,7 @@ public class SiteTimeAndInputHardeningTests
         Assert.False(await _f.WithDbAsync(db => db.Jobs.AnyAsync(j => j.JobRef == "HRD1")), "a partly-readable file must not create a job");
         Assert.False(File.Exists(file));
         Assert.True(File.Exists(Path.Combine(inbox, "_errors", "HRD1__.sch")));
-        var log = Assert.Single(await LogsAsync("SchImport"), l => l.Outcome == "error" && l.SourcePath!.Contains("HRD1"));
+        var log = Assert.Single(await LogsAsync("SchImport"), l => l.Outcome == "error" && l.SourcePath?.Contains("HRD1") == true);
         Assert.Contains("line 3", log.Message);
         Assert.Contains("forty", log.Message);
     }

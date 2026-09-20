@@ -82,6 +82,12 @@ app.MapControllers();
 
 using (var seedScope = app.Services.CreateScope())
 {
+    // Development applies pending migrations on start, so pulling new code never leaves a stale schema behind.
+    if (app.Environment.IsDevelopment())
+    {
+        await seedScope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    }
+
     await DatabaseSeeder.SeedDefaultsAsync(seedScope.ServiceProvider.GetRequiredService<AppDbContext>());
 }
 

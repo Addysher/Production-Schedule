@@ -75,13 +75,11 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         var jobTypes = await _db.JobTypes.Where(jt => jt.IsActive && jt.ComponentType != null).AsNoTracking().ToListAsync(ct);
 
-        var settings = await _db.Settings.AsNoTracking().ToDictionaryAsync(s => s.Key, s => s.Value, ct);
-        var shiftStartHour = int.Parse(settings.GetValueOrDefault("ShiftStartHour", "6"));
-        var shiftEndHour = int.Parse(settings.GetValueOrDefault("ShiftEndHour", "18"));
-        var workingDays = settings.GetValueOrDefault("WorkingDays", "1,2,3,4,5")
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(int.Parse)
-            .ToHashSet();
+        var calendar = await WorkCalendarSettings.LoadAsync(_db, ct);
+        var shiftStartHour = calendar.ShiftStartHour;
+        var shiftEndHour = calendar.ShiftEndHour;
+        var workingDays = calendar.WorkingDays;
+        var breaks = calendar.Breaks;
 
         var overrides = (await _db.StationCapacityOverrides.AsNoTracking().ToListAsync(ct))
             .ToDictionary(o => (o.StationId, o.OverrideDate), o => (double)o.EqATarget);
@@ -101,7 +99,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
             : null;
 
         var generatedAt = SiteClock.Now;
-        var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, shiftStartHour, shiftEndHour, workingDays);
+        var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, shiftStartHour, shiftEndHour, workingDays, breaks);
         var usedEqaByStation = stations.ToDictionary(s => s.Id, _ => new Dictionary<DateOnly, double>());
         var busyUntil = stations.ToDictionary(s => s.Id, _ => windowStart);
 
@@ -125,7 +123,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
             {
                 var remainingEqa = Math.Max((double)((job.TotalEqA ?? 0) - job.CompletedEqA), 0);
                 var end = WorkingCalendar.PlaceWork(busyUntil[stationId], remainingEqa, MinsPerEqa(job),
-                    shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[stationId]);
+                    shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[stationId], breaks);
 
                 if (job.TotalEqA is > 0)
                 {
@@ -190,15 +188,16 @@ public class ScheduleGenerationService : IScheduleGenerationService
                 var job = jobsByRef[jobRef];
                 DateTime plannedStart, plannedEnd;
                 var eqa = (double)(job.TotalEqA ?? 0);
+                var segments = new List<WorkSegment>();
 
                 if (IsEffectivelyPinned(job) && job.ManualScheduleDate is DateOnly manualDate)
                 {
                     // A pinned job's placement is fixed by the admin and does not consume/advance
                     // the shared cursor — other flexible jobs on this station schedule around it.
                     plannedStart = WorkingCalendar.AdvanceToWorkingWindow(
-                        manualDate.ToDateTime(new TimeOnly(shiftStartHour, 0)), shiftStartHour, shiftEndHour, workingDays);
+                        manualDate.ToDateTime(new TimeOnly(shiftStartHour, 0)), shiftStartHour, shiftEndHour, workingDays, breaks);
                     plannedEnd = WorkingCalendar.PlaceWork(plannedStart, eqa, MinsPerEqa(job),
-                        shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[station.Id]);
+                        shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[station.Id], breaks, segments);
                 }
                 else
                 {
@@ -208,12 +207,12 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
                     if (setupMinutes > 0)
                     {
-                        cursor = WorkingCalendar.PlaceDuration(cursor, setupMinutes, shiftStartHour, shiftEndHour, workingDays);
+                        cursor = WorkingCalendar.PlaceDuration(cursor, setupMinutes, shiftStartHour, shiftEndHour, workingDays, breaks);
                     }
 
-                    plannedStart = WorkingCalendar.AdvanceToWorkingWindow(cursor, shiftStartHour, shiftEndHour, workingDays);
+                    plannedStart = WorkingCalendar.AdvanceToWorkingWindow(cursor, shiftStartHour, shiftEndHour, workingDays, breaks);
                     plannedEnd = WorkingCalendar.PlaceWork(plannedStart, eqa, MinsPerEqa(job),
-                        shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[station.Id]);
+                        shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[station.Id], breaks, segments);
                     cursor = plannedEnd;
                     previousComponentType = job.ComponentType;
                 }
@@ -233,6 +232,9 @@ public class ScheduleGenerationService : IScheduleGenerationService
                     PlannedEnd = plannedEnd,
                     PlannedEqA = job.TotalEqA ?? 0,
                     MembersTotal = await _db.JobMembers.CountAsync(m => m.JobRef == jobRef, ct),
+                    Segments = segments
+                        .Select(s => new ScheduleSegment { SegmentDate = s.Day, SegmentStart = s.Start, SegmentEnd = s.End, PlannedEqA = (decimal)s.Eqa })
+                        .ToList(),
                     GeneratedAt = generatedAt
                 });
                 scheduleItemsWritten++;

@@ -28,10 +28,23 @@ public class ScheduleController : ControllerBase
             .Where(si => !si.IsArchived)
             .Include(si => si.Station)
             .Include(si => si.Job)
+            .Include(si => si.Segments)
             .AsNoTracking()
             .ToListAsync();
 
         return items.Select(ToDto).ToList();
+    }
+
+    // Readable by every role: the Calendar (Viewer-visible) needs the working window and breaks, but /api/settings is Admin-only.
+    [HttpGet("calendar-settings")]
+    public async Task<ActionResult<CalendarSettingsDto>> GetCalendarSettings()
+    {
+        var calendar = await WorkCalendarSettings.LoadAsync(_db);
+        return new CalendarSettingsDto(
+            calendar.ShiftStartHour,
+            calendar.ShiftEndHour,
+            calendar.WorkingDays.OrderBy(d => d).ToList(),
+            calendar.Breaks.Select(b => new BreakDto(b.Start.ToString(@"hh\:mm"), b.End.ToString(@"hh\:mm"))).ToList());
     }
 
     [HttpPost("generate")]
@@ -92,7 +105,11 @@ public class ScheduleController : ControllerBase
         si.Id, si.JobRef, si.Job.ClientName, si.StationId, si.Station.Name, si.Job.ComponentType,
         si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA, si.MembersTotal,
         si.ActualStart, si.ActualEnd, si.EqaCompleted, si.MembersCompleted,
-        si.CreepDetected, si.CreepApprovedAt, si.Job.Status);
+        si.CreepDetected, si.CreepApprovedAt, si.Job.Status,
+        // Plans made before segments existed have none: treat the whole plan as one stretch on its start day.
+        si.Segments.Count > 0
+            ? si.Segments.OrderBy(s => s.SegmentStart).Select(s => new ScheduleSegmentDto(s.SegmentDate, s.SegmentStart, s.SegmentEnd, s.PlannedEqA)).ToList()
+            : new List<ScheduleSegmentDto> { new(si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA) });
 
     private static string CsvEscape(string? value)
     {

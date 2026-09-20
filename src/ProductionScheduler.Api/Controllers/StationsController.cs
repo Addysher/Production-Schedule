@@ -94,8 +94,8 @@ public class StationsController : ControllerBase
         return NoContent();
     }
 
+    // Readable by every role: the Dashboard shows today's override on each station card to Viewers too. Writes stay Admin-only.
     [HttpGet("{id:int}/capacity-overrides")]
-    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<List<CapacityOverrideDto>>> GetCapacityOverrides(int id)
     {
         var overrides = await _db.StationCapacityOverrides

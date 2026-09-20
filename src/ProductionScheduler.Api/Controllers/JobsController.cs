@@ -31,7 +31,7 @@ public class JobsController : ControllerBase
         return new JobDetailDto(
             j.Id, j.JobRef, j.ComponentType, j.ClientName, j.SiteAddress, j.SiteSuburb,
             j.SupervisorName, j.SupervisorNumber, j.JobOrderDate, j.JobOrderTime,
-            j.TotalEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
+            j.TotalEqA, j.CompletedEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
             j.InvoiceNumber, j.Delivered, j.Status, isLate, j.DesignStatus,
             j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate);

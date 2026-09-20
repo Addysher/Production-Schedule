@@ -30,6 +30,8 @@ public class ScheduleItem
     public int? CreepApprovedByUserId { get; set; }
     public User? CreepApprovedByUser { get; set; }
 
+    public ICollection<ScheduleSegment> Segments { get; set; } = new List<ScheduleSegment>();
+
     public DateTime GeneratedAt { get; set; }
     public bool IsArchived { get; set; }
     public DateTime? ArchivedAt { get; set; }

@@ -600,6 +600,40 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.ToTable("ScheduleItems", (string)null);
                 });
 
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.ScheduleSegment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("PlannedEqA")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("decimal(10,4)");
+
+                    b.Property<int>("ScheduleItemId")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly>("SegmentDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("SegmentEnd")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("SegmentStart")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScheduleItemId");
+
+                    b.HasIndex("SegmentDate")
+                        .HasDatabaseName("IX_ScheduleSegments_Date");
+
+                    b.ToTable("ScheduleSegments", (string)null);
+                });
+
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.Setting", b =>
                 {
                     b.Property<string>("Key")
@@ -926,6 +960,17 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.Navigation("Station");
                 });
 
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.ScheduleSegment", b =>
+                {
+                    b.HasOne("ProductionScheduler.Domain.Entities.ScheduleItem", "ScheduleItem")
+                        .WithMany("Segments")
+                        .HasForeignKey("ScheduleItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ScheduleItem");
+                });
+
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.ShiftBreak", b =>
                 {
                     b.HasOne("ProductionScheduler.Domain.Entities.Shift", "Shift")
@@ -963,6 +1008,11 @@ namespace ProductionScheduler.Infrastructure.Migrations
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.Operator", b =>
                 {
                     b.Navigation("ScheduleItems");
+                });
+
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.ScheduleItem", b =>
+                {
+                    b.Navigation("Segments");
                 });
 
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.Shift", b =>

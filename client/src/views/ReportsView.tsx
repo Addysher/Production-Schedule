@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { scheduleApi } from '../api/schedule'
 import { jobsApi } from '../api/jobs'
+import { reportsApi } from '../api/reports'
 import type { JobSummaryDto, ScheduleItemDto } from '../types/api'
 
 function toCsv(headers: string[], rows: (string | number)[][]): string {
@@ -43,17 +44,16 @@ export function ReportsView() {
 
   const inRange = (date: string) => date.slice(0, 10) >= dateFrom && date.slice(0, 10) <= dateTo
 
-  // Report 1: Daily Production Value by Station — realised EqA per station per day.
-  const productionRows = useMemo(() => {
-    const byKey = new Map<string, { station: string; date: string; value: number }>()
-    for (const item of items.filter((i) => inRange(i.scheduleDate))) {
-      const key = `${item.stationName}__${item.scheduleDate.slice(0, 10)}`
-      const existing = byKey.get(key)
-      if (existing) existing.value += item.eqaCompleted
-      else byKey.set(key, { station: item.stationName, date: item.scheduleDate.slice(0, 10), value: item.eqaCompleted })
-    }
-    return Array.from(byKey.values()).sort((a, b) => a.date.localeCompare(b.date))
-  }, [items, dateFrom, dateTo])
+  // Report 1: Daily Production Value by Station. Comes from when each member was actually completed, so a job
+  // that ran over three days is credited to the days it was really produced, not all to its start day.
+  const [productionRows, setProductionRows] = useState<{ station: string; date: string; value: number }[]>([])
+  useEffect(() => {
+    if (!dateFrom || !dateTo) return
+    reportsApi
+      .production(dateFrom, dateTo)
+      .then((rows) => setProductionRows(rows.map((r) => ({ station: r.stationName, date: r.date.slice(0, 10), value: r.eqa }))))
+      .catch(() => setProductionRows([]))
+  }, [dateFrom, dateTo])
 
   const productionChartData = useMemo(() => {
     const byDate = new Map<string, Record<string, number | string>>()

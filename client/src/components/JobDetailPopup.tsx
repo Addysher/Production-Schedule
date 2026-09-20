@@ -16,11 +16,13 @@ export function JobDetailPopup({
   onClose,
   onEdit,
   onApproveForCutting,
+  onScheduleManually,
 }: {
   job: JobDetailDto
   onClose: () => void
   onEdit?: () => void
   onApproveForCutting?: () => void
+  onScheduleManually?: () => void
 }) {
   const { user } = useAuth()
 
@@ -69,10 +71,33 @@ export function JobDetailPopup({
           <Field label="Delivered" value={job.delivered ? 'Yes' : 'No'} />
         </div>
 
+        {job.totalEqA ? (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+              <span>Production progress</span>
+              <span>
+                {job.completedEqA.toFixed(1)} / {job.totalEqA} Eq ({Math.min(Math.round((job.completedEqA / job.totalEqA) * 100), 100)}%)
+              </span>
+            </div>
+            <div style={{ height: 8, background: '#e2e8f0', borderRadius: 4 }}>
+              <div style={{ height: 8, width: `${Math.min((job.completedEqA / job.totalEqA) * 100, 100)}%`, background: 'var(--brand-primary)', borderRadius: 4 }} />
+            </div>
+          </div>
+        ) : null}
+
+        {job.isManuallyScheduled && (
+          <div style={{ marginTop: 12, fontSize: 12, color: '#0e7490' }}>Manually scheduled for {job.manualScheduleDate} — the scheduler will not move it.</div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           {user?.isAdmin && job.status === 'ready' && onApproveForCutting && (
             <button className="btn btn-primary" onClick={onApproveForCutting}>
               Approve for cutting
+            </button>
+          )}
+          {user?.isAdmin && onScheduleManually && (
+            <button className="btn btn-secondary" onClick={onScheduleManually}>
+              {job.isManuallyScheduled ? 'Change pin' : 'Schedule manually'}
             </button>
           )}
           {user?.isAdmin && onEdit && (
