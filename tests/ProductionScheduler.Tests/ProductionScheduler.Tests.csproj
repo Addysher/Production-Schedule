@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.9" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
@@ -23,6 +24,7 @@
     <ProjectReference Include="..\..\src\ProductionScheduler.Scheduling\ProductionScheduler.Scheduling.csproj" />
     <ProjectReference Include="..\..\src\ProductionScheduler.Infrastructure\ProductionScheduler.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\ProductionScheduler.Domain\ProductionScheduler.Domain.csproj" />
+    <ProjectReference Include="..\..\src\ProductionScheduler.Api\ProductionScheduler.Api.csproj" />
   </ItemGroup>
 
 </Project>

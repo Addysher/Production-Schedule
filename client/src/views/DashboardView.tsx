@@ -128,6 +128,9 @@ export function DashboardView() {
                 .filter((i) => !i.actualStart)
                 .sort((a, b) => a.plannedStart.localeCompare(b.plannedStart))[0]
               const hasLate = stationItems.some((i) => jobs.find((j) => j.jobRef === i.jobRef)?.isLate)
+              // §7: actual vs target, with a capacity-override indicator when one applies today.
+              const todayOverride = overridesByStation[station.id]?.[0]
+              const target = todayOverride?.eqATarget ?? station.dailyEqATarget
 
               return (
                 <div
@@ -135,9 +138,27 @@ export function DashboardView() {
                   className="card"
                   style={{ border: hasLate ? '2px solid var(--status-late-border)' : undefined }}
                 >
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>{station.name}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontWeight: 700 }}>{station.name}</span>
+                    {todayOverride && (
+                      <span
+                        title={`Capacity override for today: ${todayOverride.eqATarget} Eq (normally ${station.dailyEqATarget ?? 'unset'})`}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 999,
+                          background: 'var(--badge-new-bg)',
+                          color: 'var(--badge-new-text)',
+                        }}
+                      >
+                        OVERRIDE
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--brand-primary)' }} data-testid={`station-eq-${station.id}`}>
                     {totalEqAToday.toFixed(1)}
+                    <span style={{ fontSize: 14, color: '#64748b', fontWeight: 600 }}> / {target ?? '—'}</span>
                     <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}> Eq today</span>
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>

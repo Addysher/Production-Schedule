@@ -11,9 +11,13 @@ public class PrecedenceCycleException : Exception
 // A successor cannot start until its predecessor is complete (§3.2 / §4.2 Precedences table).
 public static class PrecedenceGraph
 {
+    // Kahn's algorithm. Whenever several jobs are free to run (no unfinished predecessors), the one
+    // with the smallest `priority` goes first — pass the due date to get "EDD subject to precedence".
+    // Without a priority the free jobs are taken in job-reference order, so the result is deterministic.
     public static List<string> TopologicalSort(
         IEnumerable<string> jobRefs,
-        IEnumerable<(string PredecessorJobRef, string SuccessorJobRef)> edges)
+        IEnumerable<(string PredecessorJobRef, string SuccessorJobRef)> edges,
+        Func<string, IComparable>? priority = null)
     {
         var nodes = new HashSet<string>(jobRefs);
         var adjacency = nodes.ToDictionary(n => n, _ => new List<string>());
@@ -36,20 +40,24 @@ public static class PrecedenceGraph
             inDegree[successor]++;
         }
 
-        var queue = new Queue<string>(nodes.Where(n => inDegree[n] == 0));
-        var sorted = new List<string>();
+        var available = nodes.Where(n => inDegree[n] == 0).ToList();
+        var sorted = new List<string>(nodes.Count);
 
-        while (queue.Count > 0)
+        while (available.Count > 0)
         {
-            var current = queue.Dequeue();
-            sorted.Add(current);
+            var next = (priority is null
+                    ? available.OrderBy(n => n, StringComparer.Ordinal)
+                    : available.OrderBy(priority).ThenBy(n => n, StringComparer.Ordinal))
+                .First();
+            available.Remove(next);
+            sorted.Add(next);
 
-            foreach (var next in adjacency[current])
+            foreach (var successor in adjacency[next])
             {
-                inDegree[next]--;
-                if (inDegree[next] == 0)
+                inDegree[successor]--;
+                if (inDegree[successor] == 0)
                 {
-                    queue.Enqueue(next);
+                    available.Add(successor);
                 }
             }
         }

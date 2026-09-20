@@ -76,6 +76,11 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+using (var seedScope = app.Services.CreateScope())
+{
+    await DatabaseSeeder.SeedDefaultsAsync(seedScope.ServiceProvider.GetRequiredService<AppDbContext>());
+}
+
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
@@ -97,3 +102,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+
+// Exposes the entry point to WebApplicationFactory<Program> in the integration tests.
+public partial class Program;

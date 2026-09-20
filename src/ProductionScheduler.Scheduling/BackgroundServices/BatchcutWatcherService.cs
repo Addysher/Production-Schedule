@@ -51,7 +51,7 @@ public class BatchcutWatcherService : BackgroundService
         }
     }
 
-    private async Task PollAsync(CancellationToken ct)
+    internal async Task PollAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

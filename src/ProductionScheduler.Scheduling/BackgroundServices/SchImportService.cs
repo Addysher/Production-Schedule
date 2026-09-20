@@ -44,7 +44,7 @@ public class SchImportService : BackgroundService
         }
     }
 
-    private async Task PollAsync(CancellationToken ct)
+    internal async Task PollAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -125,7 +125,13 @@ public class SchImportService : BackgroundService
         }
 
         await db.SaveChangesAsync(ct);
-        MoveTo(filePath, importPath.UncPath, "_processed");
+        var processedPath = MoveTo(filePath, importPath.UncPath, "_processed");
+
+        // Nightly Task 3 deletes whatever SchSourcePath names, so it must be the file's final
+        // location — not the inbox path it has just left.
+        await db.Jobs.Where(j => j.JobRef == job.JobRef)
+            .ExecuteUpdateAsync(s => s.SetProperty(j => j.SchSourcePath, processedPath), ct);
+
         _logger.LogInformation("Imported SCH file {File} for job {JobRef} ({Stage}).", filePath, job.JobRef, job.DesignStatus);
         return true;
     }
@@ -241,7 +247,7 @@ public class SchImportService : BackgroundService
         Raw2 = entry.Raw2
     };
 
-    private static void MoveTo(string filePath, string importRoot, string subfolder)
+    private static string MoveTo(string filePath, string importRoot, string subfolder)
     {
         var destDir = Path.Combine(importRoot, subfolder);
         Directory.CreateDirectory(destDir);
@@ -251,6 +257,7 @@ public class SchImportService : BackgroundService
             destFile = Path.Combine(destDir, $"{Path.GetFileNameWithoutExtension(filePath)}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{Path.GetExtension(filePath)}");
         }
         File.Move(filePath, destFile);
+        return destFile;
     }
 
     internal record ParsedFile(ParsedScheduleJob? ScheduleJob, List<ParsedScheduleEntry> ScheduleEntries);

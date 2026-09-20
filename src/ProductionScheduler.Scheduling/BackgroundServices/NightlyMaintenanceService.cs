@@ -96,7 +96,8 @@ public class NightlyMaintenanceService : BackgroundService
 
         var jobs = await db.Jobs
             .Include(j => j.AssignedStation)
-            .Where(j => j.MpsSourcePath != null && j.AssignedStationId != null && j.EstimatedStartDate != null)
+            .Where(j => j.MpsSourcePath != null && j.AssignedStationId != null && j.EstimatedStartDate != null
+                && j.Status != "completed" && j.MpsArchivedAt == null) // never re-stage a finished job's MPS
             .ToListAsync(ct);
 
         foreach (var job in jobs.Where(j => DateOnly.FromDateTime(j.EstimatedStartDate!.Value) == targetDate))

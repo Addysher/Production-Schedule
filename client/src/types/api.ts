@@ -160,6 +160,7 @@ export interface CreateJobRequest {
 export interface ScheduleGenerationResult {
   jobsScheduled: number
   scheduleItemsWritten: number
+  jobsSkipped: number
 }
 
 export interface UpdateJobResponse {

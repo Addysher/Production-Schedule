@@ -212,9 +212,17 @@ public class JobsController : ControllerBase
             return NotFound();
         }
 
-        if (!await _db.Stations.AnyAsync(s => s.Id == request.StationId && s.IsActive))
+        var station = await _db.Stations.AsNoTracking().FirstOrDefaultAsync(s => s.Id == request.StationId && s.IsActive);
+        if (station is null)
         {
             return BadRequest($"Station {request.StationId} does not exist or is inactive.");
+        }
+
+        // §4.4: a job can only run on a station whose ComponentType matches its own.
+        if (station.ComponentType != job.ComponentType)
+        {
+            return BadRequest(
+                $"Station '{station.Name}' handles '{station.ComponentType}' but job '{jobRef}' is '{job.ComponentType}'.");
         }
 
         job.IsManuallyScheduled = true;
