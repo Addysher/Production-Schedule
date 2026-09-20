@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using ProductionScheduler.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,7 +58,7 @@ public class BatchcutWatcherService : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var watchPaths = await db.BatchcutWatchPaths.Where(p => p.IsActive).ToListAsync(ct);
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
 
         foreach (var watchPath in watchPaths)
         {
@@ -99,7 +100,7 @@ public class BatchcutWatcherService : BackgroundService
 
         var jobRef = ResolveJobRef(folderName);
         var job = await db.Jobs.FirstOrDefaultAsync(j => j.JobRef == jobRef, ct);
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
 
         if (job is null)
         {

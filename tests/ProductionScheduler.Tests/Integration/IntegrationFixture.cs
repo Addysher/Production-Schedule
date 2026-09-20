@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -79,7 +80,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
         // Continuous 24h, 7-day calendar: wall-clock durations make every scenario's expected
         // timings independent of when the suite happens to run (nights, weekends).
-        await SetSettingsAsync(("ShiftStartHour", "0"), ("ShiftEndHour", "24"), ("WorkingDays", "0,1,2,3,4,5,6"));
+        await SetSettingsAsync(("ShiftStartHour", "0"), ("ShiftEndHour", "24"), ("WorkingDays", "0,1,2,3,4,5,6"), ("SchFileSettleSeconds", "0"));
     }
 
     public async Task DisposeAsync()
@@ -108,8 +109,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
         foreach (var (key, value) in values)
         {
             var existing = await db.Settings.FindAsync(key);
-            if (existing is null) db.Settings.Add(new Setting { Key = key, Value = value, UpdatedAt = DateTime.UtcNow });
-            else { existing.Value = value; existing.UpdatedAt = DateTime.UtcNow; }
+            if (existing is null) db.Settings.Add(new Setting { Key = key, Value = value, UpdatedAt = SiteClock.Now });
+            else { existing.Value = value; existing.UpdatedAt = SiteClock.Now; }
         }
         await db.SaveChangesAsync();
     });

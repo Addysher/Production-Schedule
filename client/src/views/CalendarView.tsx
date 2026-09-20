@@ -1,3 +1,4 @@
+import { localIsoDate } from '../utils/dates'
 import { useEffect, useMemo, useState } from 'react'
 import { scheduleApi } from '../api/schedule'
 import { stationsApi } from '../api/stations'
@@ -82,7 +83,7 @@ export function CalendarView() {
   }, [anchorDate, workingDays])
 
   function itemsForStationDay(stationId: number, date: Date) {
-    const iso = date.toISOString().slice(0, 10)
+    const iso = localIsoDate(date)
     return items.filter((i) => i.stationId === stationId && i.scheduleDate.slice(0, 10) === iso)
   }
 
@@ -276,7 +277,7 @@ export function CalendarView() {
             <div>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Station EqA today</div>
               {stations.map((s) => {
-                const today = new Date().toISOString().slice(0, 10)
+                const today = localIsoDate(new Date())
                 const total = items
                   .filter((i) => i.stationId === s.id && i.scheduleDate.slice(0, 10) === today)
                   .reduce((sum, i) => sum + i.eqaCompleted, 0)

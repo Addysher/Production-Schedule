@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Infrastructure;
 
@@ -46,7 +47,7 @@ public class JobStatusService : IJobStatusService
             if (allDone && job.Status != "completed")
             {
                 job.Status = "completed";
-                job.UpdatedAt = DateTime.UtcNow;
+                job.UpdatedAt = SiteClock.Now;
                 updated++;
             }
         }

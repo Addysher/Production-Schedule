@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Domain.Entities;
 using Xunit;
@@ -17,7 +18,7 @@ public class ScenarioE_NightlyTasksTests
     private static Job NewJob(string jobRef, string status) => new()
     {
         JobRef = jobRef, ComponentType = "ScnE", DesignStatus = "FinalDesign", Status = status,
-        CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
     };
 
     private sealed record World(string RawDir, string DataIn, string Archive, string ForCutting, string DoneBase, int StationId);
@@ -52,7 +53,7 @@ public class ScenarioE_NightlyTasksTests
         await _f.WithDbAsync(async db =>
         {
             var t1 = NewJob($"E{tag}T1", "approved");
-            t1.MpsSourcePath = w.RawDir; t1.AssignedStationId = w.StationId; t1.EstimatedStartDate = DateTime.UtcNow.Date.AddDays(1);
+            t1.MpsSourcePath = w.RawDir; t1.AssignedStationId = w.StationId; t1.EstimatedStartDate = SiteClock.Now.Date.AddDays(1);
             var t3 = NewJob($"E{tag}T3", "completed");
             t3.SchSourcePath = sch;
             var t4 = NewJob($"E{tag}T4", "completed");
@@ -71,7 +72,7 @@ public class ScenarioE_NightlyTasksTests
         await _f.RunNightlyAsync();
 
         Assert.True(File.Exists(Path.Combine(w.DataIn, "E1T1__.MPS")), "Task 1: MPS copied into DataIn");
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         Assert.True(Directory.Exists(Path.Combine(w.DoneBase, now.Year.ToString(), $"{now.Year}-{now.Month:D2}", "E1T2__DONE")), "Task 2: DONE folder archived");
         Assert.False(File.Exists(Path.Combine(w.RawDir, "E1T3__.sch")), "Task 3: SCH deleted");
         Assert.True(File.Exists(Path.Combine(w.Archive, "E1T4__.MPS")), "Task 4: MPS archived");

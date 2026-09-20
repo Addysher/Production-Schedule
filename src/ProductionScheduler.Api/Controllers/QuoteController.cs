@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Api.Dtos;
@@ -35,7 +36,7 @@ public class QuoteController : ControllerBase
             .Select(int.Parse)
             .ToHashSet();
 
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         var results = new List<QuoteLineResult>();
 
         foreach (var line in request.Lines)

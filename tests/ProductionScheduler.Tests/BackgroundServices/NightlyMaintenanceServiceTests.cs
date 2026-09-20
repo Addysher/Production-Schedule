@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
@@ -43,12 +44,12 @@ public class NightlyMaintenanceServiceTests : IDisposable
         var existing = await _db.Settings.FindAsync(key);
         if (existing is null)
         {
-            _db.Settings.Add(new Setting { Key = key, Value = value, UpdatedAt = DateTime.UtcNow });
+            _db.Settings.Add(new Setting { Key = key, Value = value, UpdatedAt = SiteClock.Now });
         }
         else
         {
             existing.Value = value;
-            existing.UpdatedAt = DateTime.UtcNow;
+            existing.UpdatedAt = SiteClock.Now;
         }
         await _db.SaveChangesAsync();
     }
@@ -59,8 +60,8 @@ public class NightlyMaintenanceServiceTests : IDisposable
         ComponentType = "WallFrames",
         DesignStatus = "FinalDesign",
         Status = "ready",
-        CreatedAt = DateTime.UtcNow,
-        UpdatedAt = DateTime.UtcNow
+        CreatedAt = SiteClock.Now,
+        UpdatedAt = SiteClock.Now
     };
 
     [Fact]
@@ -81,7 +82,7 @@ public class NightlyMaintenanceServiceTests : IDisposable
         var job = NewJob(jobRef);
         job.MpsSourcePath = mpsSourceDir;
         job.AssignedStationId = station.Id;
-        job.EstimatedStartDate = DateTime.UtcNow.Date.AddDays(1); // tomorrow == today + 1 pre-move day
+        job.EstimatedStartDate = SiteClock.Now.Date.AddDays(1); // tomorrow == today + 1 pre-move day
         _db.Jobs.Add(job);
         await _db.SaveChangesAsync();
 
@@ -107,7 +108,7 @@ public class NightlyMaintenanceServiceTests : IDisposable
         var job = NewJob(jobRef);
         job.MpsSourcePath = Path.Combine(_tempRoot, "does_not_exist");
         job.AssignedStationId = station.Id;
-        job.EstimatedStartDate = DateTime.UtcNow.Date.AddDays(1);
+        job.EstimatedStartDate = SiteClock.Now.Date.AddDays(1);
         _db.Jobs.Add(job);
         await _db.SaveChangesAsync();
 
@@ -134,7 +135,7 @@ public class NightlyMaintenanceServiceTests : IDisposable
         await NightlyMaintenanceService.ArchiveDoneFoldersAsync(_db, default);
 
         Assert.False(Directory.Exists(doneFolder));
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         var expectedDest = Path.Combine(doneBase, now.Year.ToString(), $"{now.Year}-{now.Month:D2}", $"{jobRef}__DONE");
         Assert.True(Directory.Exists(expectedDest));
         Assert.True(File.Exists(Path.Combine(expectedDest, "x.mps")));
@@ -198,10 +199,10 @@ public class NightlyMaintenanceServiceTests : IDisposable
 
         var oldJob = NewJob(jobRefOld);
         oldJob.Status = "completed";
-        oldJob.UpdatedAt = DateTime.UtcNow.AddMonths(-12);
+        oldJob.UpdatedAt = SiteClock.Now.AddMonths(-12);
         var newJob = NewJob(jobRefNew);
         newJob.Status = "completed";
-        newJob.UpdatedAt = DateTime.UtcNow;
+        newJob.UpdatedAt = SiteClock.Now;
 
         _db.Jobs.AddRange(oldJob, newJob);
         await SetSettingAsync("ScheduleRetentionMonths", "6");

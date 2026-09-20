@@ -76,7 +76,8 @@ public static class WorkingCalendar
             }
 
             // Out of shift time or out of capacity for this day — carry on the next working day.
-            t = AdvanceToWorkingWindow(t.Date.AddDays(1).AddHours(shiftStartHour), shiftStartHour, shiftEndHour, workingDays);
+            // Roll from the day we were filling, not from t: a shift ending at 24:00 leaves t on the NEXT midnight already.
+            t = AdvanceToWorkingWindow(day.ToDateTime(TimeOnly.MinValue).AddDays(1).AddHours(shiftStartHour), shiftStartHour, shiftEndHour, workingDays);
         }
 
         return t;

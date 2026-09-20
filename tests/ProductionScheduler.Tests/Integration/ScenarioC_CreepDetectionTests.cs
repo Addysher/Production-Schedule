@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -31,7 +32,7 @@ public class ScenarioC_CreepDetectionTests
         const string comp = "ScnC";
         var dataIn = _f.NewDir("cdatain");
         var stationId = await _f.AddStationAsync("ScnC Station", comp, dataIn);
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         var today = DateOnly.FromDateTime(now);
 
         // 6 min per EqA: job X (100 EqA) = 10h planned; it started 6h ago and should end in 4h.
@@ -62,7 +63,7 @@ public class ScenarioC_CreepDetectionTests
         var admin = await _f.ClientAsync();
 
         // Only 25 of the 50 EqA that should exist after 5 hours are done -> 50% behind, threshold 20%.
-        await File.WriteAllLinesAsync(Path.Combine(dataIn, $"{DateTime.UtcNow:yyyyMMdd}.prd"), new[]
+        await File.WriteAllLinesAsync(Path.Combine(dataIn, $"{SiteClock.Now:yyyyMMdd}.prd"), new[]
         {
             "Version,1.0.0.7,PaperlessJig,05:00,ScnC Station,EqA,Mbrs",
             $"Trusses Made,CX,M1,{now.AddHours(-5):yyyy-MM-dd HH:mm:ss},1,0,0,25.00",

@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -26,7 +27,7 @@ public class JobsController : ControllerBase
 
     private static JobDetailDto ToDetailDto(Job j)
     {
-        var isLate = JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, DateTime.UtcNow);
+        var isLate = JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, SiteClock.Now);
         return new JobDetailDto(
             j.Id, j.JobRef, j.ComponentType, j.ClientName, j.SiteAddress, j.SiteSuburb,
             j.SupervisorName, j.SupervisorNumber, j.JobOrderDate, j.JobOrderTime,
@@ -45,7 +46,7 @@ public class JobsController : ControllerBase
             .AsNoTracking()
             .ToListAsync();
 
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         return jobs.Select(j => new JobSummaryDto(
                 j.Id, j.JobRef, j.ComponentType, j.ClientName, j.AssignedStationId, j.AssignedStation?.Name,
                 j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.TotalEqA, j.Status,
@@ -76,7 +77,7 @@ public class JobsController : ControllerBase
             return Conflict($"Job '{request.JobRef}' already exists.");
         }
 
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         var job = new Job
         {
             JobRef = request.JobRef,
@@ -126,8 +127,8 @@ public class JobsController : ControllerBase
         job.BookedDeliveryDate = request.BookedDeliveryDate ?? job.BookedDeliveryDate;
         job.InvoiceNumber = request.InvoiceNumber ?? job.InvoiceNumber;
         job.Delivered = request.Delivered;
-        job.DeliveredAt = request.Delivered && job.DeliveredAt is null ? DateTime.UtcNow : job.DeliveredAt;
-        job.UpdatedAt = DateTime.UtcNow;
+        job.DeliveredAt = request.Delivered && job.DeliveredAt is null ? SiteClock.Now : job.DeliveredAt;
+        job.UpdatedAt = SiteClock.Now;
 
         await _db.SaveChangesAsync();
 
@@ -194,9 +195,9 @@ public class JobsController : ControllerBase
 
         var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         job.Status = "approved";
-        job.ApprovedForCuttingAt = DateTime.UtcNow;
+        job.ApprovedForCuttingAt = SiteClock.Now;
         job.ApprovedByUserId = userId;
-        job.UpdatedAt = DateTime.UtcNow;
+        job.UpdatedAt = SiteClock.Now;
         await _db.SaveChangesAsync();
 
         return ToDetailDto(job);
@@ -228,7 +229,7 @@ public class JobsController : ControllerBase
         job.IsManuallyScheduled = true;
         job.ManualStationId = request.StationId;
         job.ManualScheduleDate = request.ScheduleDate;
-        job.UpdatedAt = DateTime.UtcNow;
+        job.UpdatedAt = SiteClock.Now;
         await _db.SaveChangesAsync();
 
         var result = await _scheduleGenerationService.GenerateAsync();
@@ -249,7 +250,7 @@ public class JobsController : ControllerBase
         job.IsManuallyScheduled = false;
         job.ManualStationId = null;
         job.ManualScheduleDate = null;
-        job.UpdatedAt = DateTime.UtcNow;
+        job.UpdatedAt = SiteClock.Now;
         await _db.SaveChangesAsync();
 
         var result = await _scheduleGenerationService.GenerateAsync();

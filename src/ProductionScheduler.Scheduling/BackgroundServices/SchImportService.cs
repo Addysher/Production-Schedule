@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using ProductionScheduler.Infrastructure;
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
@@ -50,6 +51,7 @@ public class SchImportService : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var importPaths = await db.SchImportPaths.AsNoTracking().Where(p => p.IsActive).ToListAsync(ct);
+        var settleSeconds = await SettingsReader.GetIntAsync(db, "SchFileSettleSeconds", 5, ct);
         var anyImported = false;
 
         foreach (var importPath in importPaths)
@@ -61,6 +63,12 @@ public class SchImportService : BackgroundService
 
             foreach (var file in Directory.GetFiles(importPath.UncPath, "*.sch"))
             {
+                // Sapphire may still be writing the file; reading half of it would be rejected as malformed.
+                if (!IsSettled(file, settleSeconds))
+                {
+                    continue;
+                }
+
                 if (await ProcessFileAsync(db, importPath, file, ct))
                 {
                     anyImported = true;
@@ -77,15 +85,35 @@ public class SchImportService : BackgroundService
         }
     }
 
+    // File timestamps are compared in UTC on purpose — this is about the file's age, not a wall-clock reading.
+    private static bool IsSettled(string path, int settleSeconds)
+    {
+        try
+        {
+            if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds < settleSeconds)
+            {
+                return false;
+            }
+
+            using var exclusive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false; // still open in the writer; try again next poll
+        }
+    }
+
     private async Task<bool> ProcessFileAsync(AppDbContext db, SchImportPath importPath, string filePath, CancellationToken ct)
     {
         var lines = await File.ReadAllLinesAsync(filePath, ct);
         var parsed = ParseFile(lines);
 
-        if (parsed.ScheduleJob is null)
+        if (parsed.Problems.Count > 0 || parsed.ScheduleJob is null)
         {
-            _logger.LogError("SCH file {File} is malformed — no valid ScheduleJob record found.", filePath);
-            MoveTo(filePath, importPath.UncPath, "_errors");
+            var shown = string.Join("; ", parsed.Problems.Take(4));
+            var more = parsed.Problems.Count > 4 ? $" (+{parsed.Problems.Count - 4} more)" : "";
+            await RejectAsync(db, importPath, filePath, parsed.ScheduleJob?.JobRef, $"File rejected, nothing imported — {shown}{more}", ct);
             return false;
         }
 
@@ -93,10 +121,8 @@ public class SchImportService : BackgroundService
 
         if (importPath.ComponentType is not null && !string.Equals(importPath.ComponentType, job.ComponentType, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogError(
-                "SCH file {File} has ComponentType '{Actual}' but import path '{PathName}' only accepts '{Expected}'.",
-                filePath, job.ComponentType, importPath.Name, importPath.ComponentType);
-            MoveTo(filePath, importPath.UncPath, "_errors");
+            await RejectAsync(db, importPath, filePath, job.JobRef,
+                $"Component type '{job.ComponentType}' does not match import path '{importPath.Name}', which only accepts '{importPath.ComponentType}' (wrong folder?)", ct);
             return false;
         }
 
@@ -107,8 +133,7 @@ public class SchImportService : BackgroundService
         {
             if (existing is not null)
             {
-                _logger.LogError("SCH file {File}: job '{JobRef}' already exists — quote already imported.", filePath, job.JobRef);
-                MoveTo(filePath, importPath.UncPath, "_errors");
+                await RejectAsync(db, importPath, filePath, job.JobRef, "A quote for this job was already imported", ct);
                 return false;
             }
 
@@ -132,8 +157,21 @@ public class SchImportService : BackgroundService
         await db.Jobs.Where(j => j.JobRef == job.JobRef)
             .ExecuteUpdateAsync(s => s.SetProperty(j => j.SchSourcePath, processedPath), ct);
 
+        MaintenanceLogWriter.Add(db, "SchImport", "success",
+            $"Imported {job.DesignStatus} — {parsed.ScheduleEntries.Count} members, {parsed.ScheduleEntries.Sum(e => e.EqaValue)} EqA",
+            job.JobRef, processedPath);
+        await db.SaveChangesAsync(ct);
+
         _logger.LogInformation("Imported SCH file {File} for job {JobRef} ({Stage}).", filePath, job.JobRef, job.DesignStatus);
         return true;
+    }
+
+    private async Task RejectAsync(AppDbContext db, SchImportPath importPath, string filePath, string? jobRef, string reason, CancellationToken ct)
+    {
+        _logger.LogError("SCH file {File} rejected: {Reason}", filePath, reason);
+        var errorsPath = MoveTo(filePath, importPath.UncPath, "_errors");
+        MaintenanceLogWriter.Add(db, "SchImport", "error", reason, jobRef, errorsPath);
+        await db.SaveChangesAsync(ct);
     }
 
     // MPS files are never described as arriving anywhere by the design doc — §5.13 Task 1 assumes
@@ -147,7 +185,7 @@ public class SchImportService : BackgroundService
     private static async Task CreateJobAsync(
         AppDbContext db, ParsedScheduleJob job, List<ParsedScheduleEntry> entries, string filePath, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         var entity = new Job
         {
             JobRef = job.JobRef,
@@ -202,7 +240,7 @@ public class SchImportService : BackgroundService
         existing.SchSourcePath = filePath;
         existing.MpsSourcePath ??= await GetMpsSourcePathAsync(db, ct);
         existing.TotalEqA = entries.Sum(e => e.EqaValue);
-        existing.UpdatedAt = DateTime.UtcNow;
+        existing.UpdatedAt = SiteClock.Now;
 
         var existingMembers = await db.JobMembers.Where(m => m.JobRef == job.JobRef).ToListAsync(ct);
         foreach (var entry in entries)
@@ -254,13 +292,13 @@ public class SchImportService : BackgroundService
         var destFile = Path.Combine(destDir, Path.GetFileName(filePath));
         if (File.Exists(destFile))
         {
-            destFile = Path.Combine(destDir, $"{Path.GetFileNameWithoutExtension(filePath)}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{Path.GetExtension(filePath)}");
+            destFile = Path.Combine(destDir, $"{Path.GetFileNameWithoutExtension(filePath)}_{SiteClock.Now:yyyyMMddHHmmssfff}{Path.GetExtension(filePath)}");
         }
         File.Move(filePath, destFile);
         return destFile;
     }
 
-    internal record ParsedFile(ParsedScheduleJob? ScheduleJob, List<ParsedScheduleEntry> ScheduleEntries);
+    internal record ParsedFile(ParsedScheduleJob? ScheduleJob, List<ParsedScheduleEntry> ScheduleEntries, List<string> Problems);
 
     internal record ParsedScheduleJob(
         string JobRef, string? Raw2, string ComponentType, string? ClientName,
@@ -275,13 +313,21 @@ public class SchImportService : BackgroundService
 
     // A ScheduleJob line has exactly 16 positions; a ScheduleEntry line has 27 or more (several
     // positions between the documented ones are unlabelled MiTek fields we don't persist).
+    //
+    // Deliberately strict. This parser has only ever been checked against the design doc's examples, so
+    // any line it cannot fully understand is reported in Problems and the caller rejects the whole file.
+    // A partial import (a job with missing members and a wrong TotalEqA that can never complete) is far
+    // worse than a clear "line 7: ..." message an administrator can act on.
     internal static ParsedFile ParseFile(IEnumerable<string> lines)
     {
         ParsedScheduleJob? scheduleJob = null;
         var entries = new List<ParsedScheduleEntry>();
+        var problems = new List<string>();
+        var lineNo = 0;
 
         foreach (var rawLine in lines)
         {
+            lineNo++;
             if (string.IsNullOrWhiteSpace(rawLine))
             {
                 continue;
@@ -289,54 +335,128 @@ public class SchImportService : BackgroundService
 
             var fields = rawLine.Split(';');
 
-            if (fields.Length == 16 && scheduleJob is null)
+            if (fields.Length == 16)
             {
-                scheduleJob = TryParseScheduleJob(fields);
+                if (scheduleJob is not null)
+                {
+                    problems.Add($"line {lineNo}: a second ScheduleJob record (only one per file is expected)");
+                    continue;
+                }
+
+                scheduleJob = TryParseScheduleJob(fields, lineNo, problems);
             }
             else if (fields.Length >= 27)
             {
-                var entry = TryParseScheduleEntry(fields);
+                var entry = TryParseScheduleEntry(fields, lineNo, problems);
                 if (entry is not null)
                 {
                     entries.Add(entry);
                 }
             }
+            else
+            {
+                problems.Add($"line {lineNo}: {fields.Length} fields — expected 16 (ScheduleJob) or 27+ (ScheduleEntry)");
+            }
         }
 
-        return new ParsedFile(scheduleJob, entries);
+        if (scheduleJob is null && problems.Count == 0)
+        {
+            problems.Add("no ScheduleJob record found");
+        }
+
+        if (entries.Count == 0)
+        {
+            problems.Add("no ScheduleEntry (member) records found");
+        }
+
+        if (scheduleJob is not null)
+        {
+            foreach (var other in entries.Where(e => e.JobRef != scheduleJob.JobRef).Select(e => e.JobRef).Distinct())
+            {
+                problems.Add($"member records reference job '{other}' but the file's job is '{scheduleJob.JobRef}'");
+            }
+        }
+
+        foreach (var duplicate in entries.GroupBy(e => e.MemberId).Where(g => g.Count() > 1))
+        {
+            problems.Add($"member '{duplicate.Key}' appears {duplicate.Count()} times");
+        }
+
+        return new ParsedFile(scheduleJob, entries, problems);
     }
 
-    private static ParsedScheduleJob? TryParseScheduleJob(string[] f)
+    private static ParsedScheduleJob? TryParseScheduleJob(string[] f, int lineNo, List<string> problems)
     {
-        if (!TryParseDate(f[4], out var expectedDelivery) && !string.IsNullOrWhiteSpace(f[4]))
+        var before = problems.Count;
+        string Field(int position) => f[position - 1].Trim();
+
+        if (Field(1).Length == 0)
         {
-            return null;
+            problems.Add($"line {lineNo}: field 1 (Job Reference) is empty");
         }
-        if (!TryParseDate(f[5], out var estBookedDelivery) && !string.IsNullOrWhiteSpace(f[5]))
+
+        if (Field(3).Length == 0)
         {
-            return null;
+            problems.Add($"line {lineNo}: field 3 (Component Type) is empty");
         }
-        if (!TryParseDate(f[13], out var jobOrderDate) && !string.IsNullOrWhiteSpace(f[13]))
+
+        DateOnly? Date(int position, string name)
         {
+            var value = Field(position);
+            if (value.Length == 0)
+            {
+                return null;
+            }
+
+            if (DateOnly.TryParseExact(value, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                return parsed;
+            }
+
+            problems.Add($"line {lineNo}: field {position} ({name}) '{value}' is not a dd/MM/yyyy date");
             return null;
         }
 
-        TimeOnly? jobOrderTime = TimeOnly.TryParseExact(f[14], "HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var t)
-            ? t
-            : null;
+        var expectedDelivery = Date(5, "Expected Delivery Date");
+        var estBookedDelivery = Date(6, "Est. Booked Delivery Date");
+        var jobOrderDate = Date(14, "Job Order Date");
 
-        var designStatus = f[15].Trim();
-        if (!string.Equals(designStatus, "Quote", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(designStatus, "FinalDesign", StringComparison.OrdinalIgnoreCase))
+        TimeOnly? jobOrderTime = null;
+        if (Field(15).Length > 0)
+        {
+            if (TimeOnly.TryParse(Field(15), CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+            {
+                jobOrderTime = time;
+            }
+            else
+            {
+                problems.Add($"line {lineNo}: field 15 (Job Order Time) '{Field(15)}' is not a time");
+            }
+        }
+
+        var designStatus = Field(16);
+        if (string.Equals(designStatus, "Quote", StringComparison.OrdinalIgnoreCase))
+        {
+            designStatus = "Quote";
+        }
+        else if (string.Equals(designStatus, "FinalDesign", StringComparison.OrdinalIgnoreCase))
+        {
+            designStatus = "FinalDesign";
+        }
+        else
+        {
+            problems.Add($"line {lineNo}: field 16 (Design Status) '{designStatus}' must be 'quote' or 'finaldesign'");
+        }
+
+        if (problems.Count > before)
         {
             return null;
         }
-        designStatus = string.Equals(designStatus, "Quote", StringComparison.OrdinalIgnoreCase) ? "Quote" : "FinalDesign";
 
         return new ParsedScheduleJob(
-            JobRef: f[0],
+            JobRef: Field(1),
             Raw2: NullIfEmpty(f[1]),
-            ComponentType: f[2],
+            ComponentType: Field(3),
             ClientName: NullIfEmpty(f[3]),
             ExpectedDeliveryDate: expectedDelivery,
             EstBookedDeliveryDate: estBookedDelivery,
@@ -350,48 +470,60 @@ public class SchImportService : BackgroundService
             DesignStatus: designStatus);
     }
 
-    private static ParsedScheduleEntry? TryParseScheduleEntry(string[] f)
+    private static ParsedScheduleEntry? TryParseScheduleEntry(string[] f, int lineNo, List<string> problems)
     {
-        if (string.IsNullOrWhiteSpace(f[0]) || string.IsNullOrWhiteSpace(f[3]))
+        var before = problems.Count;
+        string Field(int position) => f[position - 1].Trim();
+
+        if (Field(1).Length == 0)
         {
-            return null;
+            problems.Add($"line {lineNo}: field 1 (Job Reference) is empty");
         }
 
-        if (!decimal.TryParse(f[22], NumberStyles.Number, CultureInfo.InvariantCulture, out var eqaValue))
+        if (Field(4).Length == 0)
         {
-            return null;
+            problems.Add($"line {lineNo}: field 4 (Member ID) is empty");
         }
 
-        if (!int.TryParse(f[24], out var batch) || !int.TryParse(f[25], out var sequence) || !int.TryParse(f[26], out var subSequence))
+        if (!decimal.TryParse(Field(23), NumberStyles.Number, CultureInfo.InvariantCulture, out var eqaValue))
+        {
+            problems.Add($"line {lineNo}: field 23 (Production Value EqA) '{Field(23)}' is not a number");
+        }
+
+        int Whole(int position, string name)
+        {
+            if (int.TryParse(Field(position), out var value))
+            {
+                return value;
+            }
+
+            problems.Add($"line {lineNo}: field {position} ({name}) '{Field(position)}' is not a whole number");
+            return 0;
+        }
+
+        var batch = Whole(25, "Batch");
+        var sequence = Whole(26, "Sequence");
+        var subSequence = Whole(27, "Sub-sequence");
+
+        if (problems.Count > before)
         {
             return null;
         }
 
         return new ParsedScheduleEntry(
-            JobRef: f[0],
+            JobRef: Field(1),
             Raw2: NullIfEmpty(f[1]),
             ComponentType: NullIfEmpty(f[2]),
-            MemberId: f[3],
+            MemberId: Field(4),
             MemberCategory: NullIfEmpty(f[7]),
             LinearLengthM: decimal.TryParse(f[13], NumberStyles.Number, CultureInfo.InvariantCulture, out var len) ? len : null,
             WidthMm: int.TryParse(f[16], out var w) ? w : null,
             HeightMm: int.TryParse(f[17], out var h) ? h : null,
-            Done: string.Equals(f[21], "True", StringComparison.OrdinalIgnoreCase),
+            Done: string.Equals(f[21].Trim(), "True", StringComparison.OrdinalIgnoreCase),
             EqaValue: eqaValue,
             Batch: batch,
             Sequence: sequence,
             SubSequence: subSequence);
-    }
-
-    private static bool TryParseDate(string value, out DateOnly? result)
-    {
-        if (DateOnly.TryParseExact(value, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
-        {
-            result = d;
-            return true;
-        }
-        result = null;
-        return false;
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { jobsApi } from '../api/jobs'
+import { ChangePasswordModal } from './ChangePasswordModal'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -15,6 +16,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [lateCount, setLateCount] = useState(0)
+  const [changingPassword, setChangingPassword] = useState(false)
 
   useEffect(() => {
     jobsApi
@@ -111,6 +113,9 @@ export function Layout({ children }: { children: ReactNode }) {
           <span style={{ fontSize: 13, color: '#64748b' }}>
             {user?.username} &middot; {user?.role}
           </span>
+          <button className="btn btn-secondary" onClick={() => setChangingPassword(true)}>
+            Change password
+          </button>
           <button
             className="btn btn-secondary"
             onClick={() => {
@@ -123,6 +128,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </header>
         <main style={{ flex: 1, padding: 24, overflow: 'auto' }}>{children}</main>
       </div>
+      {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
   )
 }

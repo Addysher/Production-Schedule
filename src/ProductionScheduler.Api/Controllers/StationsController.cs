@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -119,7 +120,7 @@ public class StationsController : ControllerBase
             StationId = id,
             OverrideDate = request.OverrideDate,
             EqATarget = request.EqATarget,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = SiteClock.Now
         };
         _db.StationCapacityOverrides.Add(entity);
         await _db.SaveChangesAsync();

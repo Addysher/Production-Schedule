@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -21,7 +22,7 @@ public class ScenarioB_SchedulingCorrectnessTests
     private static Job ReadyJob(string jobRef, string comp, decimal eqa, DateOnly due) => new()
     {
         JobRef = jobRef, ComponentType = comp, DesignStatus = "FinalDesign", Status = "ready", TotalEqA = eqa,
-        ExpectedDeliveryDate = due, EstBookedDeliveryDate = due, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        ExpectedDeliveryDate = due, EstBookedDeliveryDate = due, CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
     };
 
     private async Task<List<JsonElement>> ScheduleFor(HttpClient admin, string jobRefPrefix)
@@ -38,7 +39,7 @@ public class ScenarioB_SchedulingCorrectnessTests
         const string comp = "ScnB";
         for (var s = 1; s <= 3; s++) await _f.AddStationAsync($"ScnB Station {s}", comp);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         var eqa = new[] { 480, 240, 720, 360, 600, 300, 840, 420, 540, 660, 270, 780 };
         var dueDays = new[] { 1, 0, 2, 1, 3, 0, 2, 1, 3, 2, 0, 3 };
         await _f.WithDbAsync(async db =>
@@ -91,7 +92,8 @@ public class ScenarioB_SchedulingCorrectnessTests
         }
 
         // EDD provably minimises the worst single tardiness; it must never lose on that measure...
-        Assert.True(actualMax <= shuffledMax + 0.001, $"EDD max tardiness {actualMax} vs shuffled {shuffledMax}");
+        var dump = string.Join(" | ", items.GroupBy(i => i.GetProperty("stationId").GetInt32()).Select(g => $"st{g.Key}: " + string.Join(",", g.OrderBy(i => Dt(i, "plannedStart")).Select(i => $"{i.GetProperty("jobRef").GetString()!["BEDD".Length..]}(due{due[i.GetProperty("jobRef").GetString()!]:MMdd},want{minutes[i.GetProperty("jobRef").GetString()!]},got{(Dt(i, "plannedEnd") - Dt(i, "plannedStart")).TotalMinutes:F0}@{Dt(i, "plannedStart"):dd HH:mm})"))));
+        Assert.True(actualMax <= shuffledMax + 0.001, $"EDD max tardiness {actualMax} vs shuffled {shuffledMax}. Order per station: {dump}");
         Assert.True(actualMax <= reverseMax + 0.001, $"EDD max tardiness {actualMax} vs reverse {reverseMax}");
         // ...and on this data set the total is strictly better than the deliberately worst ordering.
         Assert.True(actualTotal < reverseTotal, $"EDD total tardiness {actualTotal} vs reverse-EDD {reverseTotal}");
@@ -137,7 +139,7 @@ public class ScenarioB_SchedulingCorrectnessTests
         const string comp = "ScnBPin";
         var stationA = await _f.AddStationAsync("ScnBPin A", comp);
         await _f.AddStationAsync("ScnBPin B", comp);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         var pinDate = today.AddDays(5);
 
         await _f.WithDbAsync(async db =>
@@ -175,7 +177,7 @@ public class ScenarioB_SchedulingCorrectnessTests
     public async Task PinningToAStationOfADifferentComponentType_IsRejected()
     {
         var wrongStation = await _f.AddStationAsync("ScnBWrong Trusses", "ScnBWrongType");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         await _f.AddStationAsync("ScnBWrong Walls", "ScnBWrongWalls");
         await _f.WithDbAsync(async db => { db.Jobs.Add(ReadyJob("BWRONG-1", "ScnBWrongWalls", 100, today.AddDays(3))); await db.SaveChangesAsync(); });
 
@@ -190,7 +192,7 @@ public class ScenarioB_SchedulingCorrectnessTests
     {
         const string comp = "ScnBOk";
         await _f.AddStationAsync("ScnBOk Station", comp);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         await _f.WithDbAsync(async db =>
         {
             db.Jobs.Add(ReadyJob("BORPHAN-1", "ScnBNoStationAnywhere", 100, today.AddDays(2)));
@@ -221,7 +223,7 @@ public class ScenarioB_SchedulingCorrectnessTests
     {
         const string comp = "ScnBPrec";
         await _f.AddStationAsync("ScnBPrec Station", comp);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         await _f.WithDbAsync(async db =>
         {
             db.Jobs.Add(ReadyJob("BPREC-P1", comp, 200, today.AddDays(9))); // must run first...

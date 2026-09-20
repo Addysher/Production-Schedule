@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
@@ -92,14 +93,14 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         DateTime DueDateFor(Job job) =>
             (job.EstBookedDeliveryDate ?? job.ExpectedDeliveryDate)?.ToDateTime(TimeOnly.MinValue)
-            ?? DateTime.UtcNow.AddDays(14);
+            ?? SiteClock.Now.AddDays(14);
 
         Func<DateOnly, double?> CapacityFor(Station station) => day =>
             overrides.TryGetValue((station.Id, day), out var target) ? target
             : station.DailyEqATarget is decimal daily ? (double)daily
             : null;
 
-        var generatedAt = DateTime.UtcNow;
+        var generatedAt = SiteClock.Now;
         var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, shiftStartHour, shiftEndHour, workingDays);
         var usedEqaByStation = stations.ToDictionary(s => s.Id, _ => new Dictionary<DateOnly, double>());
         var busyUntil = stations.ToDictionary(s => s.Id, _ => windowStart);

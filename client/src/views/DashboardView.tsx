@@ -1,3 +1,4 @@
+import { localIsoDate } from '../utils/dates'
 import { useEffect, useState } from 'react'
 import { jobsApi } from '../api/jobs'
 import { scheduleApi } from '../api/schedule'
@@ -56,14 +57,14 @@ export function DashboardView() {
       jobsApi.getAll(),
       scheduleApi.getCurrent(),
       stationsApi.getAll(),
-      logsApi.getMaintenanceLogs(5),
+      logsApi.getMaintenanceLogs(50),
     ])
     setJobs(jobList)
     setItems(scheduleItems)
     setStations(stationList.filter((s) => s.isActive))
     setLogs(recentLogs)
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localIsoDate(new Date())
     const overrideEntries = await Promise.all(
       stationList
         .filter((s) => s.isActive)
@@ -76,7 +77,7 @@ export function DashboardView() {
     refresh().catch(() => {})
   }, [])
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localIsoDate(new Date())
   const runningCount = jobs.filter((j) => j.status === 'in-production').length
   const lateCount = jobs.filter((j) => j.isLate).length
   const onTimeCount = jobs.filter((j) => !j.isLate && j.status !== 'completed').length
@@ -245,8 +246,26 @@ export function DashboardView() {
             </div>
 
             <div>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Needs attention</div>
+              {logs
+                .filter((l) => l.outcome !== 'success')
+                .slice(0, 5)
+                .map((l) => (
+                  <div key={l.id} style={{ fontSize: 12, marginBottom: 8, paddingLeft: 8, borderLeft: `3px solid ${l.outcome === 'error' ? '#ef4444' : '#f59e0b'}` }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {l.taskName}
+                      {l.jobRef ? ` · ${l.jobRef}` : ''} — {l.outcome}
+                    </div>
+                    {l.message && <div style={{ color: '#475569' }}>{l.message}</div>}
+                    <div style={{ color: '#94a3b8' }}>{new Date(l.runAt).toLocaleString()}</div>
+                  </div>
+                ))}
+              {logs.every((l) => l.outcome === 'success') && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nothing needs attention</div>}
+            </div>
+
+            <div>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Recent maintenance</div>
-              {logs.map((l) => (
+              {logs.slice(0, 5).map((l) => (
                 <div key={l.id} style={{ fontSize: 12, marginBottom: 6 }}>
                   <div style={{ fontWeight: 600 }}>
                     {l.taskName} — {l.outcome}

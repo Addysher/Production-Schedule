@@ -1,3 +1,4 @@
+import { localIsoDate } from '../utils/dates'
 import { useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { scheduleApi } from '../api/schedule'
@@ -29,9 +30,9 @@ export function ReportsView() {
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setDate(d.getDate() - 13)
-    return d.toISOString().slice(0, 10)
+    return localIsoDate(d)
   })
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [dateTo, setDateTo] = useState(() => localIsoDate(new Date()))
 
   useEffect(() => {
     Promise.all([scheduleApi.getCurrent(), jobsApi.getAll()]).then(([i, j]) => {

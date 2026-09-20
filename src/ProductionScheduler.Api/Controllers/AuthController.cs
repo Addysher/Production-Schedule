@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -33,7 +34,7 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
-        user.LastLoginAt = DateTime.UtcNow;
+        user.LastLoginAt = SiteClock.Now;
         await _db.SaveChangesAsync();
 
         var token = _jwtTokenService.GenerateToken(user);
@@ -51,6 +52,11 @@ public class AuthController : ControllerBase
     [HttpPut("change-password")]
     public async Task<IActionResult> ChangePassword(ChangePasswordRequest request)
     {
+        if (PasswordPolicy.Validate(request.NewPassword) is { } weak)
+        {
+            return BadRequest(weak);
+        }
+
         var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         var user = await _db.Users.FindAsync(userId);
         if (user is null)

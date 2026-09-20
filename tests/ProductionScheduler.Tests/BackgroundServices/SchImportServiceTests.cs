@@ -120,4 +120,75 @@ public class SchImportServiceTests
 
         Assert.NotNull(result.ScheduleJob);
     }
+
+    // ---- strictness: a file the parser can't fully understand is reported, never half-imported ----
+
+    private static string[] GoodFile => new[] { ScheduleJobLine, ScheduleEntryLine };
+
+    [Fact]
+    public void ParseFile_WellFormedFile_HasNoProblems()
+    {
+        Assert.Empty(SchImportService.ParseFile(GoodFile).Problems);
+    }
+
+    [Fact]
+    public void ParseFile_LineWithAnUnexpectedFieldCount_IsReportedWithItsLineNumber()
+    {
+        var result = SchImportService.ParseFile(new[] { ScheduleJobLine, ScheduleEntryLine, "a;b;c;d;e" });
+
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("line 3", problem);
+        Assert.Contains("5 fields", problem);
+    }
+
+    [Fact]
+    public void ParseFile_MemberLineWithABadEqA_IsReportedRatherThanSilentlyDropped()
+    {
+        var bad = ScheduleEntryLine.Replace("89.12", "eighty-nine");
+
+        var result = SchImportService.ParseFile(new[] { ScheduleJobLine, ScheduleEntryLine.Replace("E17", "I31"), bad });
+
+        Assert.Contains(result.Problems, p => p.Contains("line 3") && p.Contains("EqA") && p.Contains("eighty-nine"));
+    }
+
+    [Fact]
+    public void ParseFile_DuplicateMemberIds_AreReported()
+    {
+        var result = SchImportService.ParseFile(new[] { ScheduleJobLine, ScheduleEntryLine, ScheduleEntryLine });
+
+        Assert.Contains(result.Problems, p => p.Contains("'E17'") && p.Contains("2 times"));
+    }
+
+    [Fact]
+    public void ParseFile_MembersOfADifferentJob_AreReported()
+    {
+        var result = SchImportService.ParseFile(new[] { ScheduleJobLine, ScheduleEntryLine.Replace("59778MWF", "11111XYZ") });
+
+        Assert.Contains(result.Problems, p => p.Contains("11111XYZ"));
+    }
+
+    [Fact]
+    public void ParseFile_SecondScheduleJobRecord_IsReported()
+    {
+        var result = SchImportService.ParseFile(new[] { ScheduleJobLine, ScheduleJobLine, ScheduleEntryLine });
+
+        Assert.Contains(result.Problems, p => p.Contains("second ScheduleJob"));
+    }
+
+    [Fact]
+    public void ParseFile_JobWithNoMembers_IsReported()
+    {
+        Assert.Contains(SchImportService.ParseFile(new[] { ScheduleJobLine }).Problems, p => p.Contains("no ScheduleEntry"));
+    }
+
+    [Fact]
+    public void ParseFile_BadDateAndBadDesignStatus_ReportEveryProblemAtOnce()
+    {
+        var line = ScheduleJobLine.Replace("18/09/2026;18/09/2026", "2026-09-18;18/09/2026").Replace("FinalDesign", "Maybe");
+
+        var result = SchImportService.ParseFile(new[] { line, ScheduleEntryLine });
+
+        Assert.Contains(result.Problems, p => p.Contains("field 5") && p.Contains("dd/MM/yyyy"));
+        Assert.Contains(result.Problems, p => p.Contains("field 16") && p.Contains("Maybe"));
+    }
 }

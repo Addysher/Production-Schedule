@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using ProductionScheduler.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,7 +38,7 @@ public class NightlyMaintenanceService : BackgroundService
                 runHour = await SettingsReader.GetIntAsync(db, "NightlyMaintenanceRunHour", 1, stoppingToken);
             }
 
-            var now = DateTime.UtcNow;
+            var now = SiteClock.Now;
             var nextRun = now.Date.AddHours(runHour);
             if (nextRun <= now)
             {
@@ -83,7 +84,7 @@ public class NightlyMaintenanceService : BackgroundService
                 TaskName = taskLabel,
                 Outcome = "error",
                 Message = ex.Message,
-                RunAt = DateTime.UtcNow
+                RunAt = SiteClock.Now
             });
             await db.SaveChangesAsync(ct);
         }
@@ -92,7 +93,7 @@ public class NightlyMaintenanceService : BackgroundService
     internal static async Task MoveMpsToDataInAsync(AppDbContext db, CancellationToken ct)
     {
         var preMoveDays = await SettingsReader.GetIntAsync(db, "MpsPreMoveDaysBeforeProduction", 1, ct);
-        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(preMoveDays);
+        var targetDate = DateOnly.FromDateTime(SiteClock.Now).AddDays(preMoveDays);
 
         var jobs = await db.Jobs
             .Include(j => j.AssignedStation)
@@ -105,7 +106,7 @@ public class NightlyMaintenanceService : BackgroundService
             var sourceFile = Path.Combine(job.MpsSourcePath!, $"{job.JobRef}__.MPS");
             var destFile = Path.Combine(job.AssignedStation!.UncPath ?? "", $"{job.JobRef}__.MPS");
 
-            var log = new MaintenanceLog { TaskName = "MpsToDatIn", JobRef = job.JobRef, SourcePath = sourceFile, DestPath = destFile, RunAt = DateTime.UtcNow };
+            var log = new MaintenanceLog { TaskName = "MpsToDatIn", JobRef = job.JobRef, SourcePath = sourceFile, DestPath = destFile, RunAt = SiteClock.Now };
 
             if (File.Exists(destFile))
             {
@@ -139,14 +140,14 @@ public class NightlyMaintenanceService : BackgroundService
             return;
         }
 
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         var archiveDir = Path.Combine(doneBasePath, now.Year.ToString(), $"{now.Year}-{now.Month:D2}");
 
         foreach (var folder in Directory.GetDirectories(forCuttingPath).Where(f => Path.GetFileName(f).EndsWith("DONE", StringComparison.OrdinalIgnoreCase)))
         {
             Directory.CreateDirectory(archiveDir);
             var dest = Path.Combine(archiveDir, Path.GetFileName(folder));
-            var log = new MaintenanceLog { TaskName = "SawFilesCleanup", SourcePath = folder, DestPath = dest, RunAt = DateTime.UtcNow };
+            var log = new MaintenanceLog { TaskName = "SawFilesCleanup", SourcePath = folder, DestPath = dest, RunAt = SiteClock.Now };
 
             try
             {
@@ -181,7 +182,7 @@ public class NightlyMaintenanceService : BackgroundService
 
         foreach (var job in jobs)
         {
-            var log = new MaintenanceLog { TaskName = "SchDelete", JobRef = job.JobRef, SourcePath = job.SchSourcePath, RunAt = DateTime.UtcNow };
+            var log = new MaintenanceLog { TaskName = "SchDelete", JobRef = job.JobRef, SourcePath = job.SchSourcePath, RunAt = SiteClock.Now };
 
             if (!File.Exists(job.SchSourcePath))
             {
@@ -194,7 +195,7 @@ public class NightlyMaintenanceService : BackgroundService
                 log.Outcome = "success";
             }
 
-            job.SchDeletedAt = DateTime.UtcNow;
+            job.SchDeletedAt = SiteClock.Now;
             db.MaintenanceLogs.Add(log);
         }
 
@@ -213,7 +214,7 @@ public class NightlyMaintenanceService : BackgroundService
             var sourceFile = Path.Combine(job.AssignedStation!.UncPath ?? "", $"{job.JobRef}__.MPS");
             var destFile = Path.Combine(job.AssignedStation.ArchivePath!, $"{job.JobRef}__.MPS");
 
-            var log = new MaintenanceLog { TaskName = "MpsArchive", JobRef = job.JobRef, SourcePath = sourceFile, DestPath = destFile, RunAt = DateTime.UtcNow };
+            var log = new MaintenanceLog { TaskName = "MpsArchive", JobRef = job.JobRef, SourcePath = sourceFile, DestPath = destFile, RunAt = SiteClock.Now };
 
             if (!File.Exists(sourceFile))
             {
@@ -226,7 +227,7 @@ public class NightlyMaintenanceService : BackgroundService
                 log.Outcome = "success";
             }
 
-            job.MpsArchivedAt = DateTime.UtcNow;
+            job.MpsArchivedAt = SiteClock.Now;
             db.MaintenanceLogs.Add(log);
         }
 
@@ -236,8 +237,8 @@ public class NightlyMaintenanceService : BackgroundService
     internal static async Task ArchiveOldRecordsAsync(AppDbContext db, CancellationToken ct)
     {
         var retentionMonths = await SettingsReader.GetIntAsync(db, "ScheduleRetentionMonths", 6, ct);
-        var cutoff = DateTime.UtcNow.AddMonths(-retentionMonths);
-        var now = DateTime.UtcNow;
+        var cutoff = SiteClock.Now.AddMonths(-retentionMonths);
+        var now = SiteClock.Now;
         var archived = 0;
 
         archived += await db.Jobs

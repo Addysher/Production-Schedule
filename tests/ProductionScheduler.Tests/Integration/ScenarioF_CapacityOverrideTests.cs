@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -28,14 +29,14 @@ public class ScenarioF_CapacityOverrideTests
         const string comp = "ScnF";
         // 1 minute of work per EqA (no job type configured), 24h days: only the EqA cap can spread a job over days.
         var stationId = await _f.AddStationAsync("ScnF Station", comp, dailyEqATarget: 100);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         await _f.WithDbAsync(async db =>
         {
             db.Jobs.Add(new Job
             {
                 JobRef = "F1", ComponentType = comp, DesignStatus = "FinalDesign", Status = "ready", TotalEqA = 300,
                 EstBookedDeliveryDate = today.AddDays(30), ExpectedDeliveryDate = today.AddDays(30),
-                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
             });
             await db.SaveChangesAsync();
         });
@@ -61,14 +62,14 @@ public class ScenarioF_CapacityOverrideTests
     {
         const string comp = "ScnFNoCap";
         await _f.AddStationAsync("ScnFNoCap Station", comp, dailyEqATarget: null);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
         await _f.WithDbAsync(async db =>
         {
             db.Jobs.Add(new Job
             {
                 JobRef = "FN1", ComponentType = comp, DesignStatus = "FinalDesign", Status = "ready", TotalEqA = 300,
                 EstBookedDeliveryDate = today.AddDays(30), ExpectedDeliveryDate = today.AddDays(30),
-                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
             });
             await db.SaveChangesAsync();
         });
@@ -77,7 +78,7 @@ public class ScenarioF_CapacityOverrideTests
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync("/api/schedule/generate", null)).StatusCode);
 
         // 300 minutes of work in a 24h day: finishes within ~5 hours of now, never more than a day out.
-        Assert.True(await PlannedEndAsync(admin, "FN1") <= DateTime.UtcNow.AddMinutes(305));
+        Assert.True(await PlannedEndAsync(admin, "FN1") <= SiteClock.Now.AddMinutes(305));
     }
 }
 

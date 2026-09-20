@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,9 @@ using ProductionScheduler.Scheduling;
 using ProductionScheduler.Scheduling.ConstraintResolution;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Empty = the server's own time zone. See SiteClock.
+SiteClock.UseTimeZone(builder.Configuration["Site:TimeZoneId"]);
 
 // Add services to the container.
 
@@ -94,7 +98,7 @@ if (app.Environment.IsDevelopment())
             PasswordHash = hasher.Hash("Admin123!"),
             Role = "Admin",
             IsActive = true,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = SiteClock.Now
         });
         await db.SaveChangesAsync();
         Console.WriteLine("Seeded default dev admin account: admin / Admin123!");

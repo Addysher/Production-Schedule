@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Domain.Entities;
 
@@ -26,13 +27,14 @@ public static class DatabaseSeeder
         ("MmePollIntervalSeconds", "300"),
         ("CreepThresholdPercent", "20"),
         ("MpsPreMoveDaysBeforeProduction", "1"),
+        ("SchFileSettleSeconds", "5"), // ignore an .sch file until it has been unchanged this long (Sapphire may still be writing it)
         ("NightlyMaintenanceRunHour", "1"), // not named in the doc ("configurable, default 01:00") — see NightlyMaintenanceService
     };
 
     public static async Task SeedDefaultsAsync(AppDbContext db, CancellationToken ct = default)
     {
         var existingKeys = (await db.Settings.Select(s => s.Key).ToListAsync(ct)).ToHashSet();
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
 
         foreach (var (key, value) in DefaultSettings.Where(d => !existingKeys.Contains(d.Key)))
         {

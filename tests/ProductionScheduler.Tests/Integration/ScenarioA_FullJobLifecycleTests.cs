@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -22,7 +23,7 @@ public class ScenarioA_FullJobLifecycleTests
     internal static string ScheduleEntryLine(string jobRef, string comp, string memberId, decimal eqa, int sequence = 1) =>
         $"{jobRef};?;{comp};{memberId};x;x;x;Ext Load Bearing;x;x;x;x;x;5.00;x;x;3200;1800;x;x;x;False;{eqa};x;1;{sequence};1";
 
-    private static string Due() => DateTime.UtcNow.AddDays(14).ToString("dd/MM/yyyy");
+    private static string Due() => SiteClock.Now.AddDays(14).ToString("dd/MM/yyyy");
 
     private async Task<Job> LoadJobAsync(string jobRef) =>
         await _f.WithDbAsync(db => db.Jobs.AsNoTracking().SingleAsync(j => j.JobRef == jobRef));
@@ -96,7 +97,7 @@ public class ScenarioA_FullJobLifecycleTests
         await _f.WithDbAsync(async db =>
         {
             var tracked = await db.Jobs.SingleAsync(j => j.JobRef == jobRef);
-            tracked.EstimatedStartDate = DateTime.UtcNow.Date.AddDays(1);
+            tracked.EstimatedStartDate = SiteClock.Now.Date.AddDays(1);
             await db.SaveChangesAsync();
         });
         await _f.RunNightlyAsync();
@@ -120,8 +121,8 @@ public class ScenarioA_FullJobLifecycleTests
         Assert.Equal("applied", Assert.Single(events).Status);
 
         // 6. PRD: first Trusses Made -> 'in-production'; last one -> 'completed'.
-        var prdFile = Path.Combine(dataIn, $"{DateTime.UtcNow:yyyyMMdd}.prd");
-        string Stamp(int minutesAgo) => DateTime.UtcNow.AddMinutes(-minutesAgo).ToString("yyyy-MM-dd HH:mm:ss");
+        var prdFile = Path.Combine(dataIn, $"{SiteClock.Now:yyyyMMdd}.prd");
+        string Stamp(int minutesAgo) => SiteClock.Now.AddMinutes(-minutesAgo).ToString("yyyy-MM-dd HH:mm:ss");
         await File.WriteAllLinesAsync(prdFile, new[]
         {
             "Version,1.0.0.7,PaperlessJig,05:00,ScnA Station,EqA,Mbrs",
@@ -152,7 +153,7 @@ public class ScenarioA_FullJobLifecycleTests
         Assert.False(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
         Assert.True(File.Exists(Path.Combine(archive, $"{jobRef}__.MPS")));
         Assert.NotNull(job.MpsArchivedAt);
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
         Assert.True(Directory.Exists(Path.Combine(doneBase, now.Year.ToString(), $"{now.Year}-{now.Month:D2}", $"{jobRef}__DONE")));
         Assert.False(Directory.Exists(Path.Combine(forCutting, $"{jobRef}__DONE")));
 

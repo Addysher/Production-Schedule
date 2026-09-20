@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,11 @@ public class UsersController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<UserDto>> Create(CreateUserRequest request)
     {
+        if (PasswordPolicy.Validate(request.Password) is { } weak)
+        {
+            return BadRequest(weak);
+        }
+
         if (await _db.Users.AnyAsync(u => u.Username == request.Username))
         {
             return Conflict("Username already exists.");
@@ -52,7 +58,7 @@ public class UsersController : ControllerBase
             PasswordHash = _passwordHasher.Hash(request.Password),
             Role = request.Role,
             IsActive = true,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = SiteClock.Now
         };
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
@@ -77,6 +83,11 @@ public class UsersController : ControllerBase
     [HttpPut("{id:int}/reset-password")]
     public async Task<IActionResult> ResetPassword(int id, ResetPasswordRequest request)
     {
+        if (PasswordPolicy.Validate(request.NewPassword) is { } weak)
+        {
+            return BadRequest(weak);
+        }
+
         var user = await _db.Users.FindAsync(id);
         if (user is null)
         {

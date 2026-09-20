@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -33,7 +34,7 @@ public class ScheduleItemsController : ControllerBase
         }
 
         var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        item.CreepApprovedAt = DateTime.UtcNow;
+        item.CreepApprovedAt = SiteClock.Now;
         item.CreepApprovedByUserId = userId;
         await _db.SaveChangesAsync();
         return NoContent();

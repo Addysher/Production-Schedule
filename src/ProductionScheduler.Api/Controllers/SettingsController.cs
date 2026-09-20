@@ -1,3 +1,4 @@
+using ProductionScheduler.Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,7 @@ public class SettingsController : ControllerBase
     public async Task<ActionResult<SettingDto>> Update(string key, UpdateSettingRequest request)
     {
         var setting = await _db.Settings.FindAsync(key);
-        var now = DateTime.UtcNow;
+        var now = SiteClock.Now;
 
         if (setting is null)
         {

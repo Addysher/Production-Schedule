@@ -311,6 +311,18 @@ function UsersSection() {
     load()
   }
 
+  async function resetPassword(u: UserDto) {
+    const next = window.prompt(`New password for ${u.username} (at least 8 characters):`)
+    if (next === null) return
+    try {
+      await usersApi.resetPassword(u.id, next)
+      window.alert(`Password reset for ${u.username}.`)
+    } catch (e) {
+      const data = (e as { response?: { data?: unknown } }).response?.data
+      window.alert(typeof data === 'string' ? data : 'Could not reset the password.')
+    }
+  }
+
   return (
     <div className="card">
       <table>
@@ -330,9 +342,12 @@ function UsersSection() {
               <td>{u.role}</td>
               <td>{u.isActive ? 'Yes' : 'No'}</td>
               <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '—'}</td>
-              <td>
+              <td style={{ display: 'flex', gap: 6 }}>
                 <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => toggleActive(u)}>
                   {u.isActive ? 'Deactivate' : 'Activate'}
+                </button>
+                <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => resetPassword(u)}>
+                  Reset password
                 </button>
               </td>
             </tr>
