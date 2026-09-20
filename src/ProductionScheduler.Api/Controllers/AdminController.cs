@@ -121,4 +121,18 @@ public class AdminController : ControllerBase
         await _db.SaveChangesAsync();
         return NoContent();
     }
+
+    // --- Batchcut event log (§5.12 — "Admin users can view the error detail via Admin → Settings → Batchcut log") ---
+
+    [HttpGet("batchcut-events")]
+    public async Task<ActionResult<List<BatchcutEventDto>>> GetBatchcutEvents([FromQuery] int take = 50)
+    {
+        var events = await _db.BatchcutEvents
+            .AsNoTracking()
+            .OrderByDescending(e => e.DetectedAt)
+            .Take(Math.Clamp(take, 1, 500))
+            .ToListAsync();
+
+        return events.Select(e => new BatchcutEventDto(e.Id, e.BatchcutPathId, e.FolderName, e.JobRef, e.DetectedAt, e.Status, e.ErrorMessage)).ToList();
+    }
 }

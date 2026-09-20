@@ -1,0 +1,148 @@
+:root {
+  --brand-primary: #0a5e73;
+  --brand-primary-hover: #0d7a94;
+  --brand-accent: #fdb913;
+
+  --sidebar-bg: #0a5e73;
+  --sidebar-nav-inactive: #64748b;
+  --sidebar-nav-active-text: #fdb913;
+  --sidebar-nav-active-bg: rgba(253, 185, 19, 0.15);
+  --sidebar-nav-hover-bg: rgba(255, 255, 255, 0.08);
+
+  --page-bg: #f1f5f9;
+  --card-bg: #ffffff;
+  --topbar-border: #e2e8f0;
+
+  --badge-new-bg: #fdb913;
+  --badge-new-text: #78350f;
+  --alert-late-bg: rgba(239, 68, 68, 0.12);
+  --alert-late-text: #fca5a5;
+
+  --status-scheduled-block: #fffbeb;
+  --status-scheduled-border: #fdb913;
+  --status-scheduled-text: #78350f;
+  --status-scheduled-badge: #fdb913;
+  --status-scheduled-badge-text: #78350f;
+
+  --status-ready-block: #f0fdf4;
+  --status-ready-border: #86efac;
+  --status-ready-text: #166534;
+  --status-ready-badge: #22c55e;
+  --status-ready-badge-text: #ffffff;
+
+  --status-approved-block: #ecfeff;
+  --status-approved-border: #06b6d4;
+  --status-approved-text: #0e7490;
+  --status-approved-badge: #06b6d4;
+  --status-approved-badge-text: #ffffff;
+
+  --status-cut-block: #eff6ff;
+  --status-cut-border: #3b82f6;
+  --status-cut-text: #1e40af;
+  --status-cut-badge: #3b82f6;
+  --status-cut-badge-text: #ffffff;
+
+  --status-inproduction-block: #dcfce7;
+  --status-inproduction-border: #16a34a;
+  --status-inproduction-text: #14532d;
+  --status-inproduction-badge: #15803d;
+  --status-inproduction-badge-text: #ffffff;
+
+  --status-late-block: #fff1f2;
+  --status-late-border: #ef4444;
+  --status-late-text: #9f1239;
+  --status-late-badge: #ef4444;
+  --status-late-badge-text: #ffffff;
+
+  --status-completed-block: #f9fafb;
+  --status-completed-border: #9ca3af;
+  --status-completed-text: #4b5563;
+  --status-completed-badge: #6b7280;
+  --status-completed-badge-text: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--page-bg);
+  color: #1e293b;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn-primary {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--brand-primary-hover);
+}
+
+.btn-secondary {
+  background: #fff;
+  color: var(--brand-primary);
+  border: 1px solid var(--brand-primary);
+}
+
+.btn-danger {
+  background: #fff;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+}
+
+input,
+select {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 14px;
+}
+
+th {
+  color: #64748b;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+}

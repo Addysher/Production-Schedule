@@ -28,7 +28,7 @@ public class JobsController : ControllerBase
     {
         var isLate = JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, DateTime.UtcNow);
         return new JobDetailDto(
-            j.JobRef, j.ComponentType, j.ClientName, j.SiteAddress, j.SiteSuburb,
+            j.Id, j.JobRef, j.ComponentType, j.ClientName, j.SiteAddress, j.SiteSuburb,
             j.SupervisorName, j.SupervisorNumber, j.JobOrderDate, j.JobOrderTime,
             j.TotalEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
@@ -47,7 +47,7 @@ public class JobsController : ControllerBase
 
         var now = DateTime.UtcNow;
         return jobs.Select(j => new JobSummaryDto(
-                j.JobRef, j.ComponentType, j.ClientName, j.AssignedStationId, j.AssignedStation?.Name,
+                j.Id, j.JobRef, j.ComponentType, j.ClientName, j.AssignedStationId, j.AssignedStation?.Name,
                 j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.TotalEqA, j.Status,
                 JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, now)))
             .ToList();

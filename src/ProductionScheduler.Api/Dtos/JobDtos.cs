@@ -3,11 +3,11 @@ using ProductionScheduler.Scheduling;
 namespace ProductionScheduler.Api.Dtos;
 
 public record JobSummaryDto(
-    string JobRef, string? ComponentType, string? ClientName, int? StationId, string? StationName,
+    int Id, string JobRef, string? ComponentType, string? ClientName, int? StationId, string? StationName,
     DateOnly? DueDate, decimal? TotalEqA, string Status, bool IsLate);
 
 public record JobDetailDto(
-    string JobRef, string? ComponentType, string? ClientName, string? SiteAddress, string? SiteSuburb,
+    int Id, string JobRef, string? ComponentType, string? ClientName, string? SiteAddress, string? SiteSuburb,
     string? SupervisorName, string? SupervisorNumber, DateOnly? JobOrderDate, TimeOnly? JobOrderTime,
     decimal? TotalEqA, DateTime? EstimatedStartDate, DateTime? EstimatedCompletionDate,
     DateOnly? ExpectedDeliveryDate, DateOnly? EstBookedDeliveryDate, DateOnly? BookedDeliveryDate,
