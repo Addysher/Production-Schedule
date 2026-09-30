@@ -299,10 +299,6 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<decimal?>("LinearLengthM")
-                        .HasPrecision(8, 3)
-                        .HasColumnType("decimal(8,3)");
-
                     b.Property<string>("MemberCategory")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -312,12 +308,20 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<decimal>("ProcessEqA")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("decimal(10,4)");
+
                     b.Property<string>("Raw2")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
                     b.Property<int>("Sequence")
                         .HasColumnType("int");
+
+                    b.Property<decimal>("SetupEqA")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("decimal(10,4)");
 
                     b.Property<int>("SubSequence")
                         .HasColumnType("int");

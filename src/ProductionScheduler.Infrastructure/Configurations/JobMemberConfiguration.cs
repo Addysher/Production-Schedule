@@ -16,7 +16,8 @@ public class JobMemberConfiguration : IEntityTypeConfiguration<JobMember>
         b.Property(x => x.MemberCategory).HasMaxLength(100);
         b.Property(x => x.Raw2).HasMaxLength(50);
 
-        b.Property(x => x.LinearLengthM).HasPrecision(8, 3);
+        b.Property(x => x.SetupEqA).HasPrecision(10, 4).IsRequired();
+        b.Property(x => x.ProcessEqA).HasPrecision(10, 4).IsRequired();
         b.Property(x => x.EqaValue).HasPrecision(10, 4).IsRequired();
         b.Property(x => x.CompletedEqA).HasPrecision(10, 4);
 

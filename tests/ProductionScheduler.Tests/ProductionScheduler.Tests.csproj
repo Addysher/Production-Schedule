@@ -21,6 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Real Sapphire exports, supplied by the user, used to verify the SCH parser against the
+         real world rather than only the design doc's worked examples (see SchImportService.ParseFile). -->
+    <None Include="..\..\real_data\*.sch" Link="RealSchFiles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\ProductionScheduler.Scheduling\ProductionScheduler.Scheduling.csproj" />
     <ProjectReference Include="..\..\src\ProductionScheduler.Infrastructure\ProductionScheduler.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\ProductionScheduler.Domain\ProductionScheduler.Domain.csproj" />

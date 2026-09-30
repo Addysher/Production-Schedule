@@ -256,7 +256,8 @@ public class SchImportService : BackgroundService
                 // fields (Done/CompletedAt/CompletedEqA) are owned by the PRD reader and left alone.
                 member.ComponentType = entry.ComponentType;
                 member.MemberCategory = entry.MemberCategory;
-                member.LinearLengthM = entry.LinearLengthM;
+                member.SetupEqA = entry.SetupEqA;
+                member.ProcessEqA = entry.ProcessEqA;
                 member.WidthMm = entry.WidthMm;
                 member.HeightMm = entry.HeightMm;
                 member.EqaValue = entry.EqaValue;
@@ -274,7 +275,8 @@ public class SchImportService : BackgroundService
         MemberId = entry.MemberId,
         ComponentType = entry.ComponentType,
         MemberCategory = entry.MemberCategory,
-        LinearLengthM = entry.LinearLengthM,
+        SetupEqA = entry.SetupEqA,
+        ProcessEqA = entry.ProcessEqA,
         WidthMm = entry.WidthMm,
         HeightMm = entry.HeightMm,
         Batch = entry.Batch,
@@ -308,16 +310,38 @@ public class SchImportService : BackgroundService
 
     internal record ParsedScheduleEntry(
         string JobRef, string? Raw2, string? ComponentType, string MemberId, string? MemberCategory,
-        decimal? LinearLengthM, int? WidthMm, int? HeightMm, bool Done, decimal EqaValue,
+        decimal SetupEqA, decimal ProcessEqA, int? WidthMm, int? HeightMm, bool Done, decimal EqaValue,
         int Batch, int Sequence, int SubSequence);
 
     // A ScheduleJob line has exactly 16 positions; a ScheduleEntry line has 27 or more (several
     // positions between the documented ones are unlabelled MiTek fields we don't persist).
     //
-    // Deliberately strict. This parser has only ever been checked against the design doc's examples, so
-    // any line it cannot fully understand is reported in Problems and the caller rejects the whole file.
-    // A partial import (a job with missing members and a wrong TotalEqA that can never complete) is far
-    // worse than a clear "line 7: ..." message an administrator can act on.
+    // Checked against real Sapphire exports (not just the design doc's worked examples), two things
+    // the original version of this parser got wrong:
+    //  1. Every data line is prefixed with its record-type label — "ScheduleJob: " or
+    //     "ScheduleEntry: " — which a naive `line.Split(';')` glues onto field 1 (JobRef would come
+    //     out as "ScheduleJob: 58749MPF"). Record type is identified by that label, and the label is
+    //     stripped before the remainder is split into positional fields.
+    //  2. Real files always open with four file-level header lines with their own, unrelated field
+    //     counts — "File Version=", "Production Units Names=", "Batchcut:", "Activities:" — none of
+    //     which are data records. They are recognised by prefix and skipped.
+    // Real files also delimit with "; " (a space after each semicolon), so string fields are trimmed
+    // (see NullIfEmpty and Field below) rather than carrying a leading space into the database.
+    //
+    // A third thing the original version got wrong, found by checking against three real jobs whose
+    // true "Production Value (EqA)" totals were independently known: the design doc's worked example
+    // put that value at field 23, but summing field 23 across a job's members doesn't reproduce its
+    // known total for any of the three real files. Field 23 is something else — its real meaning is
+    // unknown, and it is left unread. The true total is the sum, across every member, of field 13 plus
+    // field 14 — the two Sapphire "Activities" this file's header names (e.g. "ProcessJig; SetupJig"):
+    // field 13 is the SetupJig contribution (0 for a component type with only one activity, such as
+    // WallFrames' single "FramingMachine"), field 14 is ProcessJig's. Verified exactly against
+    // 58749MPF (129.19) and 60656MTG (158.11); 60497MWG (38.63) rounds to the user's recollection of 38.
+    //
+    // Deliberately strict otherwise: any line that isn't a recognised record or header is reported in
+    // Problems and the caller rejects the whole file. A partial import (a job with missing members and
+    // a wrong TotalEqA that can never complete) is far worse than a clear "line 7: ..." message an
+    // administrator can act on.
     internal static ParsedFile ParseFile(IEnumerable<string> lines)
     {
         ParsedScheduleJob? scheduleJob = null;
@@ -328,14 +352,13 @@ public class SchImportService : BackgroundService
         foreach (var rawLine in lines)
         {
             lineNo++;
-            if (string.IsNullOrWhiteSpace(rawLine))
+            var line = rawLine.Trim();
+            if (line.Length == 0)
             {
                 continue;
             }
 
-            var fields = rawLine.Split(';');
-
-            if (fields.Length == 16)
+            if (TryStripLabel(line, "ScheduleJob:", out var jobContent))
             {
                 if (scheduleJob is not null)
                 {
@@ -343,19 +366,37 @@ public class SchImportService : BackgroundService
                     continue;
                 }
 
+                var fields = jobContent.Split(';');
+                if (fields.Length != 16)
+                {
+                    problems.Add($"line {lineNo}: ScheduleJob has {fields.Length} fields — expected 16");
+                    continue;
+                }
+
                 scheduleJob = TryParseScheduleJob(fields, lineNo, problems);
             }
-            else if (fields.Length >= 27)
+            else if (TryStripLabel(line, "ScheduleEntry:", out var entryContent))
             {
+                var fields = entryContent.Split(';');
+                if (fields.Length < 27)
+                {
+                    problems.Add($"line {lineNo}: ScheduleEntry has {fields.Length} fields — expected 27+");
+                    continue;
+                }
+
                 var entry = TryParseScheduleEntry(fields, lineNo, problems);
                 if (entry is not null)
                 {
                     entries.Add(entry);
                 }
             }
+            else if (IsHeaderLine(line))
+            {
+                continue; // Sapphire file-level metadata — not a data record.
+            }
             else
             {
-                problems.Add($"line {lineNo}: {fields.Length} fields — expected 16 (ScheduleJob) or 27+ (ScheduleEntry)");
+                problems.Add($"line {lineNo}: unrecognised line with {line.Split(';').Length} fields — expected 'ScheduleJob:', 'ScheduleEntry:', or a known header line");
             }
         }
 
@@ -485,10 +526,19 @@ public class SchImportService : BackgroundService
             problems.Add($"line {lineNo}: field 4 (Member ID) is empty");
         }
 
-        if (!decimal.TryParse(Field(23), NumberStyles.Number, CultureInfo.InvariantCulture, out var eqaValue))
+        decimal Decimal(int position, string name)
         {
-            problems.Add($"line {lineNo}: field 23 (Production Value EqA) '{Field(23)}' is not a number");
+            if (decimal.TryParse(Field(position), NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+            {
+                return value;
+            }
+
+            problems.Add($"line {lineNo}: field {position} ({name}) '{Field(position)}' is not a number");
+            return 0;
         }
+
+        var setupEqa = Decimal(13, "SetupJig EqA");
+        var processEqa = Decimal(14, "ProcessJig EqA");
 
         int Whole(int position, string name)
         {
@@ -516,15 +566,37 @@ public class SchImportService : BackgroundService
             ComponentType: NullIfEmpty(f[2]),
             MemberId: Field(4),
             MemberCategory: NullIfEmpty(f[7]),
-            LinearLengthM: decimal.TryParse(f[13], NumberStyles.Number, CultureInfo.InvariantCulture, out var len) ? len : null,
+            SetupEqA: setupEqa,
+            ProcessEqA: processEqa,
             WidthMm: int.TryParse(f[16], out var w) ? w : null,
             HeightMm: int.TryParse(f[17], out var h) ? h : null,
             Done: string.Equals(f[21].Trim(), "True", StringComparison.OrdinalIgnoreCase),
-            EqaValue: eqaValue,
+            EqaValue: setupEqa + processEqa,
             Batch: batch,
             Sequence: sequence,
             SubSequence: subSequence);
     }
 
-    private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+    private static bool TryStripLabel(string line, string label, out string content)
+    {
+        if (line.StartsWith(label, StringComparison.OrdinalIgnoreCase))
+        {
+            content = line[label.Length..];
+            return true;
+        }
+
+        content = "";
+        return false;
+    }
+
+    private static bool IsHeaderLine(string line) =>
+        line.StartsWith("File Version", StringComparison.OrdinalIgnoreCase) ||
+        line.StartsWith("Production Units Names", StringComparison.OrdinalIgnoreCase) ||
+        line.StartsWith("Batchcut:", StringComparison.OrdinalIgnoreCase) ||
+        line.StartsWith("Activities:", StringComparison.OrdinalIgnoreCase);
+
+    // Real files delimit with "; " — a space after every semicolon — so a raw 0-based field access
+    // (used for the several Raw*/descriptive fields below that aren't run through Field()'s .Trim())
+    // would otherwise carry that leading space into the database (e.g. ClientName == " I-Smart").
+    private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

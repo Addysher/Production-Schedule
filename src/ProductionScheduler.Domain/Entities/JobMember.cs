@@ -8,7 +8,14 @@ public class JobMember
     public string MemberId { get; set; } = null!; // e.g. 'E17', 'I31'
     public string? ComponentType { get; set; }
     public string? MemberCategory { get; set; } // e.g. 'Ext Load Bearing'
-    public decimal? LinearLengthM { get; set; }
+
+    // The two components of EqaValue, named for the two Sapphire "Activities" they come from
+    // (see SchImportService.ParseFile). Field 13 (SetupJig) is 0 for component types with a single
+    // activity (WallFrames' FramingMachine, say); field 14 (ProcessJig) is the field this project
+    // originally — wrongly — treated as a linear length in metres.
+    public decimal SetupEqA { get; set; }
+    public decimal ProcessEqA { get; set; }
+
     public int? WidthMm { get; set; }
     public int? HeightMm { get; set; }
     public int Batch { get; set; }

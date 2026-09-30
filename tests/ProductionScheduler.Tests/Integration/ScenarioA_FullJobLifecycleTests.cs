@@ -17,11 +17,16 @@ public class ScenarioA_FullJobLifecycleTests
 
     public ScenarioA_FullJobLifecycleTests(IntegrationFixture fixture) => _f = fixture;
 
+    // Prefixed with the record-type label real Sapphire exports carry on every line — see
+    // SchImportService.ParseFile, whose real-world checks this shared fixture also feeds.
     internal static string ScheduleJobLine(string jobRef, string comp, string designStatus, string jobOrderDate) =>
-        $"{jobRef};?;{comp};Test Homes;{Due()};{Due()};0;2;38477;1 Example St;Testville;;;{jobOrderDate};09:15:00;{designStatus}";
+        $"ScheduleJob: {jobRef};?;{comp};Test Homes;{Due()};{Due()};0;2;38477;1 Example St;Testville;;;{jobOrderDate};09:15:00;{designStatus}";
 
+    // `eqa` lands on field 14 (ProcessEqA) with field 13 (SetupEqA) fixed at 0, so EqaValue == eqa —
+    // see SchImportService.ParseFile's real-world notes on why field 23 (left as an inert 0.00 here)
+    // isn't the production value.
     internal static string ScheduleEntryLine(string jobRef, string comp, string memberId, decimal eqa, int sequence = 1) =>
-        $"{jobRef};?;{comp};{memberId};x;x;x;Ext Load Bearing;x;x;x;x;x;5.00;x;x;3200;1800;x;x;x;False;{eqa};x;1;{sequence};1";
+        $"ScheduleEntry: {jobRef};?;{comp};{memberId};x;x;x;Ext Load Bearing;x;x;x;x;0.00;{eqa};x;x;3200;1800;x;x;x;False;0.00;x;1;{sequence};1";
 
     private static string Due() => SiteClock.Now.AddDays(14).ToString("dd/MM/yyyy");
 
