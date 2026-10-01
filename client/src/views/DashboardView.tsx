@@ -12,6 +12,7 @@ import { StatusPill } from '../components/StatusPill'
 import { CreepBadge } from '../components/CreepBadge'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
+import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 
 function Tile({
   label,
@@ -19,17 +20,20 @@ function Tile({
   accent,
   onClick,
   active,
+  title,
 }: {
   label: string
   value: number
   accent?: string
   onClick?: () => void
   active?: boolean
+  title?: string
 }) {
   return (
     <div
       className="card"
       onClick={onClick}
+      title={title}
       style={{
         flex: 1,
         minWidth: 140,
@@ -52,7 +56,8 @@ export function DashboardView() {
   const [logs, setLogs] = useState<MaintenanceLogDto[]>([])
   const [producedToday, setProducedToday] = useState<Record<number, number>>({})
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
-  const [onlyLate, setOnlyLate] = useState(false)
+  const [pinningJob, setPinningJob] = useState<JobDetailDto | null>(null)
+  const [onlyBehindSchedule, setOnlyBehindSchedule] = useState(false)
 
   async function refresh() {
     const [jobList, scheduleItems, stationList, recentLogs, produced] = await Promise.all([
@@ -82,14 +87,17 @@ export function DashboardView() {
   }, [])
 
   const runningCount = jobs.filter((j) => j.status === 'in-production').length
-  const lateCount = jobs.filter((j) => j.isLate).length
   const onTimeCount = jobs.filter((j) => !j.isLate && j.status !== 'completed').length
   const creepAlerts = items.filter((i) => i.creepDetected && !i.creepApprovedAt)
-  const atRiskCount = creepAlerts.length
+  // "At risk": tight margin between the schedule's own estimated completion and the booked delivery
+  // date (JobStatusService.IsAtRisk — configurable via Settings -> AtRiskBufferMinutes).
+  const atRiskCount = jobs.filter((j) => j.isAtRisk).length
+  // "Jobs late" here means production has slipped past its own scheduled completion — distinct from
+  // isLate's customer-due-date sense (JobStatusService.IsBehindSchedule).
+  const behindScheduleCount = jobs.filter((j) => j.isBehindSchedule).length
 
-  const atRiskJobRefs = new Set(creepAlerts.map((i) => i.jobRef))
   const urgentJobs = jobs
-    .filter((j) => (onlyLate ? j.isLate : j.isLate || atRiskJobRefs.has(j.jobRef)))
+    .filter((j) => (onlyBehindSchedule ? j.isBehindSchedule : j.isLate || j.isAtRisk || j.isBehindSchedule))
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
 
   async function openJob(jobRef: string) {
@@ -103,6 +111,17 @@ export function DashboardView() {
     await refresh()
   }
 
+  async function approveForCutting(jobRef: string) {
+    await jobsApi.approveForCutting(jobRef)
+    await refresh()
+  }
+
+  async function pinJob(jobRef: string) {
+    const summary = jobs.find((j) => j.jobRef === jobRef)
+    if (!summary) return
+    setPinningJob(await jobsApi.getById(summary.id))
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 16 }}>
@@ -112,13 +131,19 @@ export function DashboardView() {
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             <Tile label="Jobs currently running" value={runningCount} />
             <Tile label="Jobs on time" value={onTimeCount} accent="#16a34a" />
-            <Tile label="Jobs at risk" value={atRiskCount} accent="#f59e0b" />
+            <Tile
+              label="Jobs at risk"
+              value={atRiskCount}
+              accent="#f59e0b"
+              title="Scheduled completion is within the at-risk buffer of the booked delivery date (Settings -> AtRiskBufferMinutes)"
+            />
             <Tile
               label="Jobs late"
-              value={lateCount}
+              value={behindScheduleCount}
               accent="#ef4444"
-              onClick={() => setOnlyLate((v) => !v)}
-              active={onlyLate}
+              onClick={() => setOnlyBehindSchedule((v) => !v)}
+              active={onlyBehindSchedule}
+              title="Past the schedule's own estimated completion — production has slipped, which can push the due date too"
             />
           </div>
 
@@ -185,23 +210,49 @@ export function DashboardView() {
                   <th>Station</th>
                   <th>Due Date</th>
                   <th>Status</th>
+                  <th>Why</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {urgentJobs.map((j) => (
-                  <tr key={j.jobRef} style={{ cursor: 'pointer' }} onClick={() => openJob(j.jobRef)}>
-                    <td>{j.jobRef}</td>
-                    <td>{j.jobRef}</td>
+                  <tr key={j.jobRef}>
+                    <td style={{ cursor: 'pointer' }} onClick={() => openJob(j.jobRef)}>
+                      {j.jobRef}
+                    </td>
+                    <td style={{ cursor: 'pointer' }} onClick={() => openJob(j.jobRef)}>
+                      {j.jobRef}
+                    </td>
                     <td>{j.stationName ?? '—'}</td>
                     <td>{j.dueDate ?? '—'}</td>
                     <td>
                       <StatusPill status={j.status} isLate={j.isLate} />
                     </td>
+                    <td style={{ fontSize: 12 }}>
+                      {[j.isLate && 'Past due', j.isBehindSchedule && 'Behind schedule', j.isAtRisk && 'At risk'].filter(Boolean).join(' · ') || '—'}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {user?.isAdmin && j.status === 'ready' && (
+                          <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => approveForCutting(j.jobRef)}>
+                            Approve
+                          </button>
+                        )}
+                        {user?.isAdmin && (j.status === 'ready' || j.status === 'approved') && !!j.componentType && (
+                          <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => pinJob(j.jobRef)}>
+                            Reschedule
+                          </button>
+                        )}
+                        <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openJob(j.jobRef)}>
+                          View
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {urgentJobs.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ color: '#94a3b8', textAlign: 'center' }}>
+                    <td colSpan={7} style={{ color: '#94a3b8', textAlign: 'center' }}>
                       No urgent jobs
                     </td>
                   </tr>
@@ -282,6 +333,16 @@ export function DashboardView() {
       </div>
 
       {selectedJob && <JobDetailPopup job={selectedJob} onClose={() => setSelectedJob(null)} />}
+      {pinningJob && (
+        <ScheduleManuallyModal
+          job={pinningJob}
+          onClose={() => setPinningJob(null)}
+          onDone={() => {
+            setPinningJob(null)
+            refresh()
+          }}
+        />
+      )}
     </div>
   )
 }

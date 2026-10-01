@@ -14,6 +14,7 @@ import type {
 } from '../types/api'
 import type { BatchcutEventDto } from '../types/logs'
 import { JobTypesSection, ShiftsSection, StationsSection } from './SettingsTables'
+import { applyTheme, readThemeSettings, DEFAULT_PRIMARY_COLOR, DEFAULT_SECONDARY_COLOR, type ThemeMode } from '../theme/applyTheme'
 
 type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'schpaths' | 'batchpaths' | 'batchlog'
 
@@ -155,6 +156,127 @@ function UsersSection() {
   )
 }
 
+const PRIMARY_PALETTE = [
+  { name: 'Teal (default)', hex: DEFAULT_PRIMARY_COLOR },
+  { name: 'Navy', hex: '#1e3a5f' },
+  { name: 'Forest Green', hex: '#166534' },
+  { name: 'Maroon', hex: '#7f1d1d' },
+  { name: 'Slate', hex: '#334155' },
+  { name: 'Purple', hex: '#5b21b6' },
+  { name: 'Charcoal', hex: '#1f2937' },
+  { name: 'Rust', hex: '#9a3412' },
+]
+
+const SECONDARY_PALETTE = [
+  { name: 'Amber (default)', hex: DEFAULT_SECONDARY_COLOR },
+  { name: 'Red', hex: '#ef4444' },
+  { name: 'Blue', hex: '#3b82f6' },
+  { name: 'Lime', hex: '#84cc16' },
+  { name: 'Pink', hex: '#ec4899' },
+  { name: 'Cyan', hex: '#06b6d4' },
+  { name: 'Orange', hex: '#f97316' },
+  { name: 'Ice White', hex: '#f8fafc' },
+]
+
+const CUSTOM = '__custom__'
+
+function ColorSetting({
+  label,
+  value,
+  palette,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: string
+  palette: { name: string; hex: string }[]
+  disabled: boolean
+  onChange: (hex: string) => void
+}) {
+  const matched = palette.find((p) => p.hex.toLowerCase() === value.toLowerCase())
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ width: 110, fontSize: 13, fontWeight: 600 }}>{label}</div>
+      <select
+        disabled={disabled}
+        value={matched ? matched.hex : CUSTOM}
+        onChange={(e) => {
+          if (e.target.value !== CUSTOM) onChange(e.target.value)
+        }}
+      >
+        {palette.map((p) => (
+          <option key={p.hex} value={p.hex}>
+            {p.name}
+          </option>
+        ))}
+        <option value={CUSTOM}>Custom…</option>
+      </select>
+      <input type="color" disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 40, height: 30, padding: 2 }} />
+      <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{value}</span>
+    </div>
+  )
+}
+
+function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (saved: SettingDto) => void }) {
+  const { primaryColor, secondaryColor, mode } = readThemeSettings(rows)
+  const [saving, setSaving] = useState(false)
+
+  // Saves to the server and previews instantly — applyTheme runs on the merged settings so the whole
+  // app (sidebar, badges, status colours) reflects the change immediately, not just on next reload.
+  // onSaved merges the one changed row into the parent's state synchronously (no refetch round trip).
+  // Every control is disabled for the duration of a save (`saving`): two of these in flight at once
+  // would each compute applyTheme from the `rows` snapshot they started with, so whichever finishes
+  // last would silently clobber the other's change — serialising them (rather than only avoiding a
+  // stale refetch) is what actually rules that out.
+  async function set(key: string, value: string) {
+    setSaving(true)
+    try {
+      const saved = await settingsApi.update(key, value)
+      applyTheme([...rows.filter((r) => r.key !== key), saved])
+      onSaved(saved)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const modeButton = (m: ThemeMode, label: string) => (
+    <button
+      key={m}
+      className="btn"
+      disabled={saving}
+      style={{
+        background: mode === m ? 'var(--brand-primary)' : '#fff',
+        color: mode === m ? '#fff' : 'var(--brand-primary)',
+        border: '1px solid var(--brand-primary)',
+        borderRadius: 0,
+      }}
+      onClick={() => set('ThemeMode', m)}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontWeight: 700 }}>Appearance</div>
+      <ColorSetting label="Primary colour" value={primaryColor} palette={PRIMARY_PALETTE} disabled={saving} onChange={(hex) => set('ThemePrimaryColor', hex)} />
+      <ColorSetting label="Secondary colour" value={secondaryColor} palette={SECONDARY_PALETTE} disabled={saving} onChange={(hex) => set('ThemeSecondaryColor', hex)} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 110, fontSize: 13, fontWeight: 600 }}>Theme mode</div>
+        <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden' }}>
+          {modeButton('system', 'System')}
+          {modeButton('light', 'Light')}
+          {modeButton('dark', 'Dark')}
+        </div>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+          {saving ? 'Saving…' : mode === 'system' ? "Follows this PC's light/dark setting" : `Always ${mode}`}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function SystemSettingsSection() {
   const [rows, setRows] = useState<SettingDto[]>([])
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -170,8 +292,14 @@ function SystemSettingsSection() {
     load()
   }
 
+  function mergeSaved(saved: SettingDto) {
+    setRows((current) => [...current.filter((r) => r.key !== saved.key), saved].sort((a, b) => a.key.localeCompare(b.key)))
+  }
+
   return (
-    <div className="card">
+    <>
+      <AppearanceSection rows={rows} onSaved={mergeSaved} />
+      <div className="card">
       <table>
         <thead>
           <tr>
@@ -202,7 +330,8 @@ function SystemSettingsSection() {
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   )
 }
 

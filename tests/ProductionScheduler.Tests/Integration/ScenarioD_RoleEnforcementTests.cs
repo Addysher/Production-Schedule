@@ -95,6 +95,10 @@ public class ScenarioD_RoleEnforcementTests
                  {
                      "/api/jobs", "/api/jobs/status-refresh", "/api/schedule/current", "/api/schedule/export",
                      "/api/stations", "/api/jobtypes", "/api/maintenance-logs", "/api/stations/1/capacity-overrides",
+                     // Settings reads (ThemePrimaryColor/ThemeSecondaryColor/ThemeMode) are open to any
+                     // signed-in user — every role renders the same themed UI — but writing one is still
+                     // Admin-only (checked below).
+                     "/api/settings",
                  })
         {
             Assert.Equal(HttpStatusCode.OK, (await viewer.GetAsync(path)).StatusCode);
@@ -102,7 +106,7 @@ public class ScenarioD_RoleEnforcementTests
 
         foreach (var path in new[]
                  {
-                     "/api/users", "/api/settings", "/api/operators", "/api/shifts",
+                     "/api/users", "/api/operators", "/api/shifts",
                      "/api/admin/sch-import-paths", "/api/admin/batchcut-watch-paths", "/api/admin/batchcut-events",
                  })
         {

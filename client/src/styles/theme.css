@@ -1,19 +1,28 @@
+/* --brand-primary and --brand-accent are the two user-configurable tokens (Settings -> System
+   Settings -> Appearance; see client/src/theme/applyTheme.ts, which sets them inline on :root from
+   ThemePrimaryColor/ThemeSecondaryColor). Everything derived from them below uses color-mix() rather
+   than its own hardcoded hex, so a colour change cascades through the sidebar, badges and hover states
+   without any extra JS. Themed by data-theme (ThemeMode: 'system' leaves it unset, so the
+   prefers-color-scheme block below decides; 'light'/'dark' pin it explicitly). */
 :root {
   --brand-primary: #0a5e73;
-  --brand-primary-hover: #0d7a94;
+  --brand-primary-hover: color-mix(in srgb, var(--brand-primary) 85%, white);
   --brand-accent: #fdb913;
 
-  --sidebar-bg: #0a5e73;
+  --sidebar-bg: var(--brand-primary);
   --sidebar-nav-inactive: #64748b;
-  --sidebar-nav-active-text: #fdb913;
-  --sidebar-nav-active-bg: rgba(253, 185, 19, 0.15);
+  --sidebar-nav-active-text: var(--brand-accent);
+  --sidebar-nav-active-bg: color-mix(in srgb, var(--brand-accent) 15%, transparent);
   --sidebar-nav-hover-bg: rgba(255, 255, 255, 0.08);
 
   --page-bg: #f1f5f9;
   --card-bg: #ffffff;
   --topbar-border: #e2e8f0;
+  --text-primary: #1e293b;
+  --input-border: #cbd5e1;
+  --now-line: #ef4444;
 
-  --badge-new-bg: #fdb913;
+  --badge-new-bg: var(--brand-accent);
   --badge-new-text: #78350f;
   --alert-late-bg: rgba(239, 68, 68, 0.12);
   --alert-late-text: #fca5a5;
@@ -61,15 +70,95 @@
   --status-completed-badge-text: #ffffff;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg: #0f172a;
+    --card-bg: #1e293b;
+    --topbar-border: #334155;
+    --text-primary: #e2e8f0;
+    --input-border: #475569;
+
+    --status-scheduled-block: color-mix(in srgb, #fdb913 14%, #1e293b);
+    --status-scheduled-text: #fde68a;
+    --status-ready-block: color-mix(in srgb, #22c55e 14%, #1e293b);
+    --status-ready-text: #86efac;
+    --status-approved-block: color-mix(in srgb, #06b6d4 14%, #1e293b);
+    --status-approved-text: #67e8f9;
+    --status-cut-block: color-mix(in srgb, #3b82f6 14%, #1e293b);
+    --status-cut-text: #93c5fd;
+    --status-inproduction-block: color-mix(in srgb, #16a34a 20%, #1e293b);
+    --status-inproduction-text: #86efac;
+    --status-late-block: color-mix(in srgb, #ef4444 18%, #1e293b);
+    --status-late-text: #fca5a5;
+    --status-completed-block: color-mix(in srgb, #9ca3af 14%, #1e293b);
+    --status-completed-text: #cbd5e1;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page-bg: #0f172a;
+  --card-bg: #1e293b;
+  --topbar-border: #334155;
+  --text-primary: #e2e8f0;
+  --input-border: #475569;
+
+  --status-scheduled-block: color-mix(in srgb, #fdb913 14%, #1e293b);
+  --status-scheduled-text: #fde68a;
+  --status-ready-block: color-mix(in srgb, #22c55e 14%, #1e293b);
+  --status-ready-text: #86efac;
+  --status-approved-block: color-mix(in srgb, #06b6d4 14%, #1e293b);
+  --status-approved-text: #67e8f9;
+  --status-cut-block: color-mix(in srgb, #3b82f6 14%, #1e293b);
+  --status-cut-text: #93c5fd;
+  --status-inproduction-block: color-mix(in srgb, #16a34a 20%, #1e293b);
+  --status-inproduction-text: #86efac;
+  --status-late-block: color-mix(in srgb, #ef4444 18%, #1e293b);
+  --status-late-text: #fca5a5;
+  --status-completed-block: color-mix(in srgb, #9ca3af 14%, #1e293b);
+  --status-completed-text: #cbd5e1;
+}
+
 * {
   box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+.now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--now-line);
+  z-index: 3;
+  pointer-events: none;
+}
+.now-line::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--now-line);
 }
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--page-bg);
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 button {
@@ -116,6 +205,7 @@ button {
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   padding: 16px;
+  color: var(--text-primary);
 }
 
 input,
@@ -123,8 +213,10 @@ select {
   font-family: inherit;
   font-size: 14px;
   padding: 6px 10px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--input-border);
   border-radius: 4px;
+  background: var(--card-bg);
+  color: var(--text-primary);
 }
 
 table {
@@ -136,7 +228,7 @@ th,
 td {
   text-align: left;
   padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--topbar-border);
   font-size: 14px;
 }
 

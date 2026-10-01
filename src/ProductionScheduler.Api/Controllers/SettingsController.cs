@@ -10,7 +10,6 @@ namespace ProductionScheduler.Api.Controllers;
 
 [ApiController]
 [Route("api/settings")]
-[Authorize(Roles = "Admin")]
 public class SettingsController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -20,6 +19,9 @@ public class SettingsController : ControllerBase
         _db = db;
     }
 
+    // Read access is open to any authenticated user (same reasoning as calendar-settings): the
+    // appearance settings (ThemePrimaryColor/ThemeSecondaryColor/ThemeMode) have to be readable by a
+    // Viewer too, since every logged-in user renders the same themed UI, not just Admins.
     [HttpGet]
     public async Task<ActionResult<List<SettingDto>>> GetAll()
     {
@@ -28,6 +30,7 @@ public class SettingsController : ControllerBase
     }
 
     [HttpPut("{key}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<SettingDto>> Update(string key, UpdateSettingRequest request)
     {
         var setting = await _db.Settings.FindAsync(key);

@@ -98,6 +98,13 @@ export interface JobSummaryDto {
   totalEqA: number | null
   status: JobStatus
   isLate: boolean
+  estimatedCompletionDate: string | null
+  // "At risk" = tight margin between the schedule's own estimated completion and the booked delivery
+  // date, not yet late. "Behind schedule" = the schedule's own estimated completion has already
+  // passed and the job isn't done — a production-side slip, distinct from isLate's customer-due-date
+  // sense. See JobStatusService.IsAtRisk / IsBehindSchedule.
+  isAtRisk: boolean
+  isBehindSchedule: boolean
 }
 
 export interface JobDetailDto {

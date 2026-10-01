@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { scheduleApi } from '../api/schedule'
 import { stationsApi } from '../api/stations'
 import { jobsApi } from '../api/jobs'
@@ -15,6 +15,7 @@ import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 const ROW_HEIGHT = 52
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour: 18, workingDays: [1, 2, 3, 4, 5], breaks: [] }
+const NOW_LINE_REFRESH_MS = 15 * 60 * 1000 // §request: the "now" line updates on a 15-minute interval
 
 const hoursOf = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number)
@@ -30,14 +31,31 @@ function startOfWeek(date: Date) {
   return d
 }
 
+function startOfCalendarMonth(date: Date) {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1)
+  return startOfWeek(first)
+}
+
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
 interface Block {
   item: ScheduleItemDto
   segment: ScheduleSegmentDto
 }
 
+// Dragging a block onto a different station/day calls the same schedule-manually endpoint the
+// "Schedule manually" modal uses, so the server's own component-type check is still the authority —
+// the client only pre-checks it for a quicker, clearer error than a round trip would give.
+interface DragPayload {
+  jobRef: string
+  componentType: string | null
+}
+
 export function CalendarView() {
   const { user } = useAuth()
-  const [mode, setMode] = useState<'day' | 'week'>('day')
+  const [mode, setMode] = useState<'day' | 'week' | 'month'>('day')
   const [anchorDate, setAnchorDate] = useState(() => new Date())
   const [stations, setStations] = useState<StationDto[]>([])
   const [items, setItems] = useState<ScheduleItemDto[]>([])
@@ -47,6 +65,14 @@ export function CalendarView() {
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [pinning, setPinning] = useState<JobDetailDto | null>(null)
   const [showAddStation, setShowAddStation] = useState(false)
+  const [recalculating, setRecalculating] = useState(false)
+  const [dragError, setDragError] = useState<string | null>(null)
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), NOW_LINE_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [])
 
   async function refresh() {
     const today = localIsoDate(new Date())
@@ -90,6 +116,17 @@ export function CalendarView() {
     }).filter((d) => workingDays.includes(d.getDay()))
   }, [anchorDate, workingDays])
 
+  // Always the full Mon-Sun grid, padded into neighbouring months — a traditional month calendar,
+  // not filtered to working days, so non-working days still show as (empty) cells in context.
+  const monthDays = useMemo(() => {
+    const start = startOfCalendarMonth(anchorDate)
+    return Array.from({ length: 42 }, (_, i) => {
+      const d = new Date(start)
+      d.setDate(d.getDate() + i)
+      return d
+    })
+  }, [anchorDate])
+
   // One block per job per day it has work planned — a job spread over three days shows on all three.
   const blocks = useMemo<Block[]>(() => items.flatMap((item) => item.segments.map((segment) => ({ item, segment }))), [items])
 
@@ -98,9 +135,59 @@ export function CalendarView() {
     return blocks.filter((b) => b.item.stationId === stationId && b.segment.date.slice(0, 10) === iso)
   }
 
+  function blocksForDay(date: Date): Block[] {
+    const iso = localIsoDate(date)
+    const seen = new Set<string>() // one chip per job per day, even if it spans several stations/segments
+    return blocks.filter((b) => {
+      if (b.segment.date.slice(0, 10) !== iso) return false
+      if (seen.has(b.item.jobRef)) return false
+      seen.add(b.item.jobRef)
+      return true
+    })
+  }
+
   const queuedUnscheduled = jobs.filter((j) => j.status === 'ready' && !j.stationId)
   const creepAlerts = items.filter((i) => i.creepDetected && !i.creepApprovedAt)
   const canPin = (job: JobDetailDto) => !!user?.isAdmin && (job.status === 'ready' || job.status === 'approved') && !!job.componentType
+  const canDrag = (item: ScheduleItemDto) => !!user?.isAdmin && item.jobStatus !== 'completed'
+
+  async function recalculate() {
+    setRecalculating(true)
+    try {
+      const result = await scheduleApi.generate()
+      await refresh()
+      window.alert(`Recalculated: ${result.jobsScheduled} job(s) scheduled${result.jobsSkipped ? `, ${result.jobsSkipped} skipped (no matching station/capacity)` : ''}.`)
+    } catch (e) {
+      window.alert('Recalculate failed — see the console for details.')
+      console.error(e)
+    } finally {
+      setRecalculating(false)
+    }
+  }
+
+  function onBlockDragStart(e: DragEvent, item: ScheduleItemDto) {
+    const payload: DragPayload = { jobRef: item.jobRef, componentType: item.componentType }
+    e.dataTransfer.setData('application/json', JSON.stringify(payload))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  async function onDropOnStationDay(e: DragEvent, station: StationDto, date: Date) {
+    e.preventDefault()
+    const raw = e.dataTransfer.getData('application/json')
+    if (!raw) return
+    const payload = JSON.parse(raw) as DragPayload
+    if (payload.componentType !== station.componentType) {
+      setDragError(`'${station.name}' handles '${station.componentType}', but ${payload.jobRef} is '${payload.componentType ?? 'unknown'}'.`)
+      return
+    }
+    try {
+      await jobsApi.scheduleManually(payload.jobRef, station.id, localIsoDate(date))
+      await refresh()
+    } catch (err) {
+      const data = (err as { response?: { data?: unknown } }).response?.data
+      setDragError(typeof data === 'string' ? data : `Could not move ${payload.jobRef}.`)
+    }
+  }
 
   return (
     <div>
@@ -113,20 +200,26 @@ export function CalendarView() {
                 className="btn btn-secondary"
                 onClick={() => {
                   const d = new Date(anchorDate)
-                  d.setDate(d.getDate() + (mode === 'day' ? -1 : -7))
+                  if (mode === 'month') d.setMonth(d.getMonth() - 1)
+                  else d.setDate(d.getDate() + (mode === 'day' ? -1 : -7))
                   setAnchorDate(d)
                 }}
               >
                 &larr;
               </button>
-              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 120, textAlign: 'center' }}>
-                {mode === 'day' ? anchorDate.toDateString() : `Week of ${startOfWeek(anchorDate).toDateString()}`}
+              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 140, textAlign: 'center' }}>
+                {mode === 'day'
+                  ? anchorDate.toDateString()
+                  : mode === 'week'
+                    ? `Week of ${startOfWeek(anchorDate).toDateString()}`
+                    : anchorDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
               </span>
               <button
                 className="btn btn-secondary"
                 onClick={() => {
                   const d = new Date(anchorDate)
-                  d.setDate(d.getDate() + (mode === 'day' ? 1 : 7))
+                  if (mode === 'month') d.setMonth(d.getMonth() + 1)
+                  else d.setDate(d.getDate() + (mode === 'day' ? 1 : 7))
                   setAnchorDate(d)
                 }}
               >
@@ -136,117 +229,188 @@ export function CalendarView() {
                 Today
               </button>
               <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--brand-primary)' }}>
-                <button
-                  className="btn"
-                  style={{ background: mode === 'day' ? 'var(--brand-primary)' : '#fff', color: mode === 'day' ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
-                  onClick={() => setMode('day')}
-                >
-                  Day
-                </button>
-                <button
-                  className="btn"
-                  style={{ background: mode === 'week' ? 'var(--brand-primary)' : '#fff', color: mode === 'week' ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
-                  onClick={() => setMode('week')}
-                >
-                  Week
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
-            <div style={{ display: 'flex', minWidth: 'max-content' }}>
-              {/* Sticky label column */}
-              <div style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 2, borderRight: '1px solid #e2e8f0' }}>
-                <div style={{ height: 40, borderBottom: '1px solid #e2e8f0' }} />
-                {mode === 'day'
-                  ? hours.map((h) => (
-                      <div key={h} style={{ height: ROW_HEIGHT, width: 64, fontSize: 11, color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid #f1f5f9' }}>
-                        {String(h).padStart(2, '0')}:00
-                      </div>
-                    ))
-                  : weekDays.map((d) => (
-                      <div key={d.toISOString()} style={{ height: 90, width: 90, fontSize: 11, color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid #f1f5f9' }}>
-                        {DAY_NAMES[d.getDay()]} {d.getDate()}
-                      </div>
-                    ))}
-              </div>
-
-              {stations.map((station) => (
-                <div key={station.id} style={{ width: 220, borderRight: '1px solid #e2e8f0', flexShrink: 0 }}>
-                  <div
-                    style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: 'var(--brand-primary)', borderBottom: '1px solid #e2e8f0' }}
+                {(['day', 'week', 'month'] as const).map((m) => (
+                  <button
+                    key={m}
+                    className="btn"
+                    style={{ background: mode === m ? 'var(--brand-primary)' : '#fff', color: mode === m ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
+                    onClick={() => setMode(m)}
                   >
-                    {station.name}
-                  </div>
-
-                  {mode === 'day' ? (
-                    <div style={{ position: 'relative', height: hours.length * ROW_HEIGHT }}>
-                      {hours.map((h) => (
-                        <div key={h} style={{ position: 'absolute', top: (h - shiftStartHour) * ROW_HEIGHT, width: '100%', height: ROW_HEIGHT, borderBottom: '1px solid #f1f5f9' }} />
-                      ))}
-                      {calendar.breaks.map((b) => {
-                        const top = (hoursOf(b.start) - shiftStartHour) * ROW_HEIGHT
-                        const height = (hoursOf(b.end) - hoursOf(b.start)) * ROW_HEIGHT
-                        return (
-                          <div
-                            key={b.start}
-                            title={`Break ${b.start}–${b.end}`}
-                            style={{
-                              position: 'absolute',
-                              top,
-                              height,
-                              left: 0,
-                              right: 0,
-                              background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 12px)',
-                              fontSize: 10,
-                              color: '#94a3b8',
-                              padding: '1px 6px',
-                              zIndex: 0,
-                            }}
-                          >
-                            Break
-                          </div>
-                        )
-                      })}
-                      {blocksForStationDay(station.id, anchorDate).map(({ item, segment }, idx) => {
-                        const start = new Date(segment.start)
-                        const end = new Date(segment.end)
-                        const startOffsetH = start.getHours() + start.getMinutes() / 60 - shiftStartHour
-                        const durationH = Math.max((end.getTime() - start.getTime()) / 3600000, 0.5)
-                        return (
-                          <div
-                            key={`${item.id}-${idx}`}
-                            style={{ position: 'absolute', top: startOffsetH * ROW_HEIGHT, left: 2, right: 2, height: durationH * ROW_HEIGHT - 2, zIndex: 1 }}
-                          >
-                            <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div>
-                      {weekDays.map((d) => (
-                        <div key={d.toISOString()} style={{ height: 90, borderBottom: '1px solid #f1f5f9', padding: 2, overflow: 'auto' }}>
-                          {blocksForStationDay(station.id, d).map(({ item, segment }, idx) => (
-                            <CalendarBlock key={`${item.id}-${idx}`} item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {user?.isAdmin && (
-                <div style={{ width: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 8 }}>
-                  <button className="btn btn-secondary" onClick={() => setShowAddStation(true)}>
-                    + Station
+                    {m[0].toUpperCase() + m.slice(1)}
                   </button>
-                </div>
+                ))}
+              </div>
+              {user?.isAdmin && (
+                <button className="btn btn-secondary" disabled={recalculating} onClick={recalculate} title="Re-run the scheduler to tidy up gaps left by manual moves">
+                  {recalculating ? 'Recalculating…' : 'Recalculate'}
+                </button>
               )}
             </div>
           </div>
+
+          {dragError && (
+            <div className="card" style={{ marginBottom: 12, borderLeft: '3px solid #ef4444', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#9f1239' }}>{dragError}</span>
+              <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setDragError(null)}>
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {mode === 'month' ? (
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+                {DAY_NAMES.map((n) => (
+                  <div key={n} style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#94a3b8', borderBottom: '1px solid #e2e8f0' }}>
+                    {n}
+                  </div>
+                ))}
+                {monthDays.map((d) => {
+                  const inMonth = d.getMonth() === anchorDate.getMonth()
+                  const dayBlocks = blocksForDay(d)
+                  const shown = dayBlocks.slice(0, 4)
+                  const more = dayBlocks.length - shown.length
+                  return (
+                    <div
+                      key={d.toISOString()}
+                      style={{
+                        minHeight: 110,
+                        padding: 6,
+                        borderBottom: '1px solid #f1f5f9',
+                        borderRight: '1px solid #f1f5f9',
+                        opacity: inMonth ? 1 : 0.4,
+                        background: sameDay(d, new Date()) ? 'var(--sidebar-nav-active-bg)' : undefined,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: inMonth ? undefined : '#94a3b8' }}>{d.getDate()}</div>
+                      {shown.map(({ item, segment }, idx) => (
+                        <CalendarBlock key={`${item.id}-${idx}`} item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
+                      ))}
+                      {more > 0 && <div style={{ fontSize: 11, color: '#94a3b8', cursor: 'pointer' }} onClick={() => { setAnchorDate(d); setMode('day') }}>+{more} more</div>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
+              <div style={{ display: 'flex', minWidth: 'max-content' }}>
+                {/* Sticky label column */}
+                <div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 2, borderRight: '1px solid #e2e8f0' }}>
+                  <div style={{ height: 40, borderBottom: '1px solid #e2e8f0' }} />
+                  {mode === 'day'
+                    ? hours.map((h) => (
+                        <div key={h} style={{ height: ROW_HEIGHT, width: 64, fontSize: 11, color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                          {String(h).padStart(2, '0')}:00
+                        </div>
+                      ))
+                    : weekDays.map((d) => (
+                        <div key={d.toISOString()} style={{ height: 90, width: 90, fontSize: 11, color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                          {DAY_NAMES[d.getDay()]} {d.getDate()}
+                        </div>
+                      ))}
+                </div>
+
+                {stations.map((station) => (
+                  <div key={station.id} style={{ width: 220, borderRight: '1px solid #e2e8f0', flexShrink: 0 }}>
+                    <div
+                      style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: 'var(--brand-primary)', borderBottom: '1px solid #e2e8f0' }}
+                    >
+                      {station.name}
+                    </div>
+
+                    {mode === 'day' ? (
+                      <div
+                        style={{ position: 'relative', height: hours.length * ROW_HEIGHT }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => onDropOnStationDay(e, station, anchorDate)}
+                      >
+                        {hours.map((h) => (
+                          <div key={h} style={{ position: 'absolute', top: (h - shiftStartHour) * ROW_HEIGHT, width: '100%', height: ROW_HEIGHT, borderBottom: '1px solid #f1f5f9' }} />
+                        ))}
+                        {calendar.breaks.map((b) => {
+                          const top = (hoursOf(b.start) - shiftStartHour) * ROW_HEIGHT
+                          const height = (hoursOf(b.end) - hoursOf(b.start)) * ROW_HEIGHT
+                          return (
+                            <div
+                              key={b.start}
+                              title={`Break ${b.start}–${b.end}`}
+                              style={{
+                                position: 'absolute',
+                                top,
+                                height,
+                                left: 0,
+                                right: 0,
+                                background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 12px)',
+                                fontSize: 10,
+                                color: '#94a3b8',
+                                padding: '1px 6px',
+                                zIndex: 0,
+                              }}
+                            >
+                              Break
+                            </div>
+                          )
+                        })}
+                        {blocksForStationDay(station.id, anchorDate).map(({ item, segment }, idx) => {
+                          const start = new Date(segment.start)
+                          const end = new Date(segment.end)
+                          const startOffsetH = start.getHours() + start.getMinutes() / 60 - shiftStartHour
+                          const durationH = Math.max((end.getTime() - start.getTime()) / 3600000, 0.5)
+                          return (
+                            <div
+                              key={`${item.id}-${idx}`}
+                              draggable={canDrag(item)}
+                              onDragStart={(e) => onBlockDragStart(e, item)}
+                              style={{
+                                position: 'absolute',
+                                top: startOffsetH * ROW_HEIGHT,
+                                left: 2,
+                                right: 2,
+                                height: durationH * ROW_HEIGHT - 2,
+                                zIndex: 1,
+                                cursor: canDrag(item) ? 'grab' : undefined,
+                              }}
+                            >
+                              <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} />
+                            </div>
+                          )
+                        })}
+                        {sameDay(anchorDate, now) && now.getHours() + now.getMinutes() / 60 >= shiftStartHour && now.getHours() + now.getMinutes() / 60 <= shiftEndHour && (
+                          <div className="now-line" style={{ top: (now.getHours() + now.getMinutes() / 60 - shiftStartHour) * ROW_HEIGHT }} title={`Now — ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        {weekDays.map((d) => (
+                          <div
+                            key={d.toISOString()}
+                            style={{ height: 90, borderBottom: '1px solid #f1f5f9', padding: 2, overflow: 'auto' }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => onDropOnStationDay(e, station, d)}
+                          >
+                            {blocksForStationDay(station.id, d).map(({ item, segment }, idx) => (
+                              <div key={`${item.id}-${idx}`} draggable={canDrag(item)} onDragStart={(e) => onBlockDragStart(e, item)} style={{ cursor: canDrag(item) ? 'grab' : undefined }}>
+                                <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {user?.isAdmin && (
+                  <div style={{ width: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 8 }}>
+                    <button className="btn btn-secondary" onClick={() => setShowAddStation(true)}>
+                      + Station
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <CollapsibleSidePanel viewKey="calendar" title="Details">

@@ -7,6 +7,7 @@ using ProductionScheduler.Api.Dtos;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
 using ProductionScheduler.Scheduling;
+using ProductionScheduler.Scheduling.BackgroundServices;
 
 namespace ProductionScheduler.Api.Controllers;
 
@@ -47,10 +48,18 @@ public class JobsController : ControllerBase
             .ToListAsync();
 
         var now = SiteClock.Now;
-        return jobs.Select(j => new JobSummaryDto(
-                j.Id, j.JobRef, j.ComponentType, j.ClientName, j.AssignedStationId, j.AssignedStation?.Name,
-                j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.TotalEqA, j.Status,
-                JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, now)))
+        var atRiskBufferMinutes = await SettingsReader.GetIntAsync(_db, "AtRiskBufferMinutes", 1440);
+        return jobs.Select(j =>
+            {
+                var dueDate = j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate;
+                return new JobSummaryDto(
+                    j.Id, j.JobRef, j.ComponentType, j.ClientName, j.AssignedStationId, j.AssignedStation?.Name,
+                    dueDate, j.TotalEqA, j.Status,
+                    JobStatusService.IsLate(dueDate, j.Status, now),
+                    j.EstimatedCompletionDate,
+                    JobStatusService.IsAtRisk(j.EstimatedCompletionDate, dueDate, j.Status, now, atRiskBufferMinutes),
+                    JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now));
+            })
             .ToList();
     }
 

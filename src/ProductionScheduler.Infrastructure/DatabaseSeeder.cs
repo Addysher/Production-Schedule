@@ -13,7 +13,10 @@ public static class DatabaseSeeder
     // Admin -> Settings so an administrator can fill them in.
     private static readonly (string Key, string Value)[] DefaultSettings =
     {
-        ("AtRiskBufferMinutes", "0"), // "confirmed by operations before go-live"; 0 = unused (At Risk is superseded, §5.0)
+        // Activated for the Dashboard's "Jobs at risk" tile: a job is at risk once its scheduled
+        // completion is within this many minutes of its booked delivery date (and not already late).
+        // Default 1440 = 24 hours.
+        ("AtRiskBufferMinutes", "1440"),
         ("ShiftStartHour", "6"),
         ("ShiftEndHour", "18"),
         ("WorkingDays", "1,2,3,4,5"),
@@ -29,6 +32,12 @@ public static class DatabaseSeeder
         ("MpsPreMoveDaysBeforeProduction", "1"),
         ("SchFileSettleSeconds", "5"), // ignore an .sch file until it has been unchanged this long (Sapphire may still be writing it)
         ("NightlyMaintenanceRunHour", "1"), // not named in the doc ("configurable, default 01:00") — see NightlyMaintenanceService
+
+        // Appearance — read by any authenticated user (SettingsController) and applied client-side
+        // (client/src/theme/applyTheme.ts) so Admin and Viewer see the same branding/mode.
+        ("ThemePrimaryColor", "#0a5e73"),
+        ("ThemeSecondaryColor", "#fdb913"),
+        ("ThemeMode", "system"), // 'system' | 'light' | 'dark'
     };
 
     public static async Task SeedDefaultsAsync(AppDbContext db, CancellationToken ct = default)

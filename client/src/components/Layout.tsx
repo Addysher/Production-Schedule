@@ -3,6 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { jobsApi } from '../api/jobs'
 import { notificationsApi } from '../api/reports'
+import { settingsApi } from '../api/admin'
+import { applyTheme } from '../theme/applyTheme'
 import { ChangePasswordModal } from './ChangePasswordModal'
 
 const navItems = [
@@ -93,6 +95,17 @@ export function Layout({ children }: { children: ReactNode }) {
       .getAll()
       .then((jobs) => setLateCount(jobs.filter((j) => j.isLate).length))
       .catch(() => setLateCount(0))
+  }, [])
+
+  // Applied for every signed-in user (Admin or Viewer render the same themed shell) — see
+  // theme/applyTheme.ts and Settings -> System Settings -> Appearance for where this is edited.
+  useEffect(() => {
+    settingsApi
+      .getAll()
+      .then(applyTheme)
+      .catch(() => {
+        // transient failure — the shell just keeps whatever theme was last applied (or the CSS defaults)
+      })
   }, [])
 
   const navStyle = (isActive: boolean) => ({

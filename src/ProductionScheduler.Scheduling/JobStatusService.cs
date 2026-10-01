@@ -62,4 +62,29 @@ public class JobStatusService : IJobStatusService
 
     public static bool IsLate(DateOnly? dueDate, string status, DateTime now) =>
         status != "completed" && dueDate is not null && dueDate.Value.ToDateTime(TimeOnly.MaxValue) < now;
+
+    // Dashboard "Jobs at risk": the gap between the schedule's own estimated completion and the
+    // customer's booked delivery date has shrunk to (or below) the configured buffer — a warning that
+    // there's little slack left, before it actually slips past the due date (which is IsLate's job).
+    // Excludes a job that's already late so the two Dashboard tiles don't double-count the same job.
+    // The gap must also be non-negative: a schedule whose estimated completion already falls AFTER the
+    // due date isn't merely "tight", it's already projected to miss it — that's worse than at-risk, not
+    // a case of it, and a negative gap would otherwise trivially satisfy "<= bufferMinutes" by accident.
+    public static bool IsAtRisk(DateTime? estimatedCompletionDate, DateOnly? dueDate, string status, DateTime now, int bufferMinutes)
+    {
+        if (status == "completed" || estimatedCompletionDate is null || dueDate is null || IsLate(dueDate, status, now))
+        {
+            return false;
+        }
+
+        var gapMinutes = (dueDate.Value.ToDateTime(TimeOnly.MaxValue) - estimatedCompletionDate.Value).TotalMinutes;
+        return gapMinutes >= 0 && gapMinutes <= bufferMinutes;
+    }
+
+    // Dashboard "Jobs late" (production sense, distinct from IsLate's customer-due-date sense): the
+    // schedule itself predicted this job would be done by now and it isn't — the factory has already
+    // slipped against its own plan, which is an earlier and more actionable warning than waiting for
+    // the customer's due date to pass.
+    public static bool IsBehindSchedule(DateTime? estimatedCompletionDate, string status, DateTime now) =>
+        status != "completed" && estimatedCompletionDate is not null && estimatedCompletionDate.Value < now;
 }
