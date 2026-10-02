@@ -28,8 +28,14 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<LoginResponse>> Login(LoginRequest request)
     {
+        // The Users table (and its unique index) use SQL Server's default case-insensitive collation, so
+        // this lookup alone would let "admin", "Admin" and "ADMIN" all match the same row. The username
+        // itself isn't a secret, but it should still be typed correctly — only the password is meant to
+        // be forgiving-free; an ordinal re-check after the fetch enforces exact case without needing a
+        // collation change to the column (which the unique index also relies on staying case-insensitive,
+        // so two users can't exist differing only by case).
         var user = await _db.Users.SingleOrDefaultAsync(u => u.Username == request.Username && u.IsActive);
-        if (user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+        if (user is null || !string.Equals(user.Username, request.Username, StringComparison.Ordinal) || !_passwordHasher.Verify(request.Password, user.PasswordHash))
         {
             return Unauthorized();
         }
