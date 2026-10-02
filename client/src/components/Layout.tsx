@@ -4,8 +4,11 @@ import { useAuth } from '../auth/AuthContext'
 import { jobsApi } from '../api/jobs'
 import { notificationsApi } from '../api/reports'
 import { settingsApi } from '../api/admin'
-import { applyTheme } from '../theme/applyTheme'
+import { applyTheme, cycleThemeOverride, getThemeOverride, onThemeChanged, type ThemeMode } from '../theme/applyTheme'
 import { ChangePasswordModal } from './ChangePasswordModal'
+
+const THEME_ICON: Record<ThemeMode, string> = { system: '\u{1F4BB}', light: '☀️', dark: '\u{1F319}' }
+const THEME_LABEL: Record<ThemeMode, string> = { system: 'Auto', light: 'Light', dark: 'Dark' }
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -88,6 +91,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const [lateCount, setLateCount] = useState(0)
   const [changingPassword, setChangingPassword] = useState(false)
+  const [themeOverride, setThemeOverride] = useState<ThemeMode>(() => getThemeOverride())
   const { counts, acknowledge } = useNotifications(user?.username)
 
   useEffect(() => {
@@ -102,11 +106,22 @@ export function Layout({ children }: { children: ReactNode }) {
   useEffect(() => {
     settingsApi
       .getAll()
-      .then(applyTheme)
+      .then((settings) => {
+        applyTheme(settings)
+        setThemeOverride(getThemeOverride())
+      })
       .catch(() => {
         // transient failure — the shell just keeps whatever theme was last applied (or the CSS defaults)
       })
   }, [])
+
+  function toggleTheme() {
+    setThemeOverride(cycleThemeOverride())
+  }
+
+  // Keeps the header's own label in sync when the theme changes from elsewhere in the same tab — e.g.
+  // an admin picking a new default on the Settings -> Appearance page.
+  useEffect(() => onThemeChanged(() => setThemeOverride(getThemeOverride())), [])
 
   const navStyle = (isActive: boolean) => ({
     display: 'flex',
@@ -167,7 +182,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <header
           style={{
             height: 56,
-            background: '#fff',
+            background: 'var(--card-bg)',
             borderBottom: '1px solid var(--topbar-border)',
             display: 'flex',
             alignItems: 'center',
@@ -176,6 +191,16 @@ export function Layout({ children }: { children: ReactNode }) {
             gap: 12,
           }}
         >
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={`Theme: ${THEME_LABEL[themeOverride]} (click to change)`}
+            className="btn btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span aria-hidden="true">{THEME_ICON[themeOverride]}</span>
+            {THEME_LABEL[themeOverride]}
+          </button>
           {(counts.newJobs > 0 || counts.errors > 0) && (
             <div data-testid="notification-badge" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               {counts.newJobs > 0 && (
@@ -189,7 +214,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   {counts.newJobs} new {counts.newJobs === 1 ? 'job' : 'jobs'}
                 </button>
               )}
-              {counts.newJobs > 0 && counts.errors > 0 && <span style={{ color: '#94a3b8' }}>&middot;</span>}
+              {counts.newJobs > 0 && counts.errors > 0 && <span style={{ color: 'var(--text-faint)' }}>&middot;</span>}
               {counts.errors > 0 && (
                 <button
                   onClick={showErrors}
@@ -200,7 +225,7 @@ export function Layout({ children }: { children: ReactNode }) {
               )}
             </div>
           )}
-          <span style={{ fontSize: 13, color: '#64748b' }}>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             {user?.username} &middot; {user?.role}
           </span>
           <button className="btn btn-secondary" onClick={() => setChangingPassword(true)}>

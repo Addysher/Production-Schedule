@@ -54,7 +54,7 @@ export function StationsSection() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8' }}>
+              <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                 No stations yet
               </td>
             </tr>
@@ -117,7 +117,7 @@ export function JobTypesSection() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={5} style={{ textAlign: 'center', color: '#94a3b8' }}>
+              <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                 No job types yet
               </td>
             </tr>

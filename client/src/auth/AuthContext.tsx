@@ -9,6 +9,12 @@ interface AuthState {
   isAdmin: boolean
 }
 
+interface StoredSession {
+  token: string
+  username: string
+  role: Role
+}
+
 interface AuthContextValue {
   user: AuthState | null
   login: (username: string, password: string) => Promise<void>
@@ -17,17 +23,67 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+// sessionStorage (not localStorage): the session should survive a reload/navigation within the tab
+// but still end when the browser/tab closes, matching "stay signed in until I close the browser or
+// log out" rather than persisting indefinitely on disk.
+const SESSION_KEY = 'auth.session'
+
+// The server's JWT (480 min expiry, see JwtSettings) already carries 'exp' — decoded here only so a
+// stale session isn't restored and then immediately bounced by the first API call's 401.
+function jwtExpiryMs(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+function readStoredSession(): StoredSession | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    const stored = JSON.parse(raw) as StoredSession
+    const expiry = jwtExpiryMs(stored.token)
+    if (expiry !== null && expiry <= Date.now()) {
+      sessionStorage.removeItem(SESSION_KEY)
+      return null
+    }
+    return stored
+  } catch {
+    return null
+  }
+}
+
+function writeStoredSession(session: StoredSession | null) {
+  try {
+    if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    else sessionStorage.removeItem(SESSION_KEY)
+  } catch {
+    // no storage: the tab just won't survive a reload, same as before this fix
+  }
+}
+
+function restoreSession(): AuthState | null {
+  const stored = readStoredSession()
+  if (!stored) return null
+  setAuthToken(stored.token)
+  return { username: stored.username, role: stored.role, isAdmin: stored.role === 'Admin' }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthState | null>(null)
+  const [user, setUser] = useState<AuthState | null>(restoreSession)
 
   const logout = useCallback(() => {
     setAuthToken(null)
+    writeStoredSession(null)
     setUser(null)
   }, [])
 
   const login = useCallback(async (username: string, password: string) => {
     const response = await authApi.login(username, password)
     setAuthToken(response.token)
+    writeStoredSession({ token: response.token, username: response.username, role: response.role })
     setUser({ username: response.username, role: response.role, isAdmin: response.role === 'Admin' })
   }, [])
 

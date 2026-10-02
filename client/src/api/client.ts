@@ -1,8 +1,8 @@
 import axios from 'axios'
 
-// Token is held in memory only (§7 Step 7) — not persisted to localStorage, so a hard refresh
-// requires logging in again. A module-level variable (rather than reading from React state on
-// every request) keeps the interceptor synchronous and simple.
+// The token itself lives here only for the life of this module; AuthContext is what actually persists
+// it (to sessionStorage, restored on load) across a reload. A module-level variable — rather than
+// reading from React state on every request — keeps the interceptor synchronous and simple.
 let authToken: string | null = null
 
 export function setAuthToken(token: string | null) {

@@ -5,8 +5,8 @@ import { StatusPill } from './StatusPill'
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div>
-      <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 14, color: '#1e293b' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{value ?? '—'}</div>
     </div>
   )
 }
@@ -47,7 +47,7 @@ export function JobDetailPopup({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>{job.jobRef}</div>
-            <div style={{ fontSize: 13, color: '#64748b' }}>{job.componentType}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{job.componentType}</div>
           </div>
           <StatusPill status={job.status} isLate={job.isLate} />
         </div>
@@ -73,13 +73,13 @@ export function JobDetailPopup({
 
         {job.totalEqA ? (
           <div style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
               <span>Production progress</span>
               <span>
                 {job.completedEqA.toFixed(1)} / {job.totalEqA} Eq ({Math.min(Math.round((job.completedEqA / job.totalEqA) * 100), 100)}%)
               </span>
             </div>
-            <div style={{ height: 8, background: '#e2e8f0', borderRadius: 4 }}>
+            <div style={{ height: 8, background: 'var(--border-subtle)', borderRadius: 4 }}>
               <div style={{ height: 8, width: `${Math.min((job.completedEqA / job.totalEqA) * 100, 100)}%`, background: 'var(--brand-primary)', borderRadius: 4 }} />
             </div>
           </div>

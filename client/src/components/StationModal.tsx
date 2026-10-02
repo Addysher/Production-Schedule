@@ -117,9 +117,9 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
       </div>
 
       {station && (
-        <div style={{ marginTop: 20, borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+        <div style={{ marginTop: 20, borderTop: '1px solid var(--border-subtle)', paddingTop: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Capacity overrides</div>
-          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 8 }}>
             A one-off EqA target for a single day, replacing the daily target (e.g. overtime, or a machine down). Applied immediately; re-run the schedule to see the effect.
           </div>
           {overrides.map((o) => (
@@ -131,7 +131,7 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
               </button>
             </div>
           ))}
-          {overrides.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>None</div>}
+          {overrides.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 6 }}>None</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input type="date" value={newOverride.date} onChange={(e) => setNewOverride({ ...newOverride, date: e.target.value })} />
             <input type="number" placeholder="Eq target" style={{ width: 100 }} value={newOverride.target} onChange={(e) => setNewOverride({ ...newOverride, target: e.target.value })} />

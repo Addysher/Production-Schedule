@@ -75,7 +75,7 @@ export function ShiftModal({ shift, onClose, onSaved }: { shift?: ShiftDto; onCl
             <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </Field>
         </div>
-        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
           The working window itself is set by ShiftStartHour / ShiftEndHour in System Settings; a shift contributes its breaks.
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -89,7 +89,7 @@ export function ShiftModal({ shift, onClose, onSaved }: { shift?: ShiftDto; onCl
             <div key={b.key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
               <input type="time" value={b.start} onChange={(e) => updateBreak(b.key, { start: e.target.value })} />
               <input type="number" min={1} style={{ width: 80 }} value={b.mins} onChange={(e) => updateBreak(b.key, { mins: e.target.value })} />
-              <span style={{ fontSize: 12, color: '#64748b' }}>minutes</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>minutes</span>
               <button className="btn btn-danger" style={{ padding: '1px 8px' }} onClick={() => setBreaks(breaks.filter((x) => x.key !== b.key))}>
                 &times;
               </button>

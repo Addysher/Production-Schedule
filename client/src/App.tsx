@@ -45,7 +45,7 @@ function ProtectedRoute({ children, adminOnly }: { children: ReactNode; adminOnl
   }
   if (!statusRefreshReady) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
         Loading…
       </div>
     )

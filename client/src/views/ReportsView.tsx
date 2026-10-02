@@ -129,14 +129,14 @@ export function ReportsView() {
         <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--brand-primary)' }}>
           <button
             className="btn"
-            style={{ background: report === 'production' ? 'var(--brand-primary)' : '#fff', color: report === 'production' ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
+            style={{ background: report === 'production' ? 'var(--brand-primary)' : 'var(--card-bg)', color: report === 'production' ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
             onClick={() => setReport('production')}
           >
             Production by Station
           </button>
           <button
             className="btn"
-            style={{ background: report === 'completed-late' ? 'var(--brand-primary)' : '#fff', color: report === 'completed-late' ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
+            style={{ background: report === 'completed-late' ? 'var(--brand-primary)' : 'var(--card-bg)', color: report === 'completed-late' ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
             onClick={() => setReport('completed-late')}
           >
             Completed vs Late

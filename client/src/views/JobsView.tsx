@@ -116,7 +116,7 @@ export function JobsView() {
       style={{
         color: color ?? 'var(--brand-primary)',
         borderColor: color ?? 'var(--brand-primary)',
-        background: statusFilter === value && value !== '' ? '#f1f5f9' : '#fff',
+        background: statusFilter === value && value !== '' ? 'var(--divider-faint)' : 'var(--card-bg)',
         fontWeight: statusFilter === value && value !== '' ? 800 : 600,
       }}
     >
@@ -189,7 +189,7 @@ export function JobsView() {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                       No jobs match the current filter
                     </td>
                   </tr>

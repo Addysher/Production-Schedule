@@ -22,6 +22,14 @@
   --input-border: #cbd5e1;
   --now-line: #ef4444;
 
+  /* General-purpose tokens for the muted/secondary text and hairline borders scattered through the
+     views and modals (tables' empty-state rows, hints, grid lines) — kept separate from the
+     header-specific --topbar-border so either can change independently. */
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --border-subtle: #e2e8f0;
+  --divider-faint: #f1f5f9;
+
   --badge-new-bg: var(--brand-accent);
   --badge-new-text: #78350f;
   --alert-late-bg: rgba(239, 68, 68, 0.12);
@@ -77,6 +85,10 @@
     --topbar-border: #334155;
     --text-primary: #e2e8f0;
     --input-border: #475569;
+    --text-muted: #94a3b8;
+    --text-faint: #64748b;
+    --border-subtle: #334155;
+    --divider-faint: #243049;
 
     --status-scheduled-block: color-mix(in srgb, #fdb913 14%, #1e293b);
     --status-scheduled-text: #fde68a;
@@ -101,6 +113,10 @@
   --topbar-border: #334155;
   --text-primary: #e2e8f0;
   --input-border: #475569;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+  --border-subtle: #334155;
+  --divider-faint: #243049;
 
   --status-scheduled-block: color-mix(in srgb, #fdb913 14%, #1e293b);
   --status-scheduled-text: #fde68a;
@@ -184,13 +200,13 @@ button {
 }
 
 .btn-secondary {
-  background: #fff;
+  background: var(--card-bg);
   color: var(--brand-primary);
   border: 1px solid var(--brand-primary);
 }
 
 .btn-danger {
-  background: #fff;
+  background: var(--card-bg);
   color: #dc2626;
   border: 1px solid #dc2626;
 }
@@ -233,7 +249,7 @@ td {
 }
 
 th {
-  color: #64748b;
+  color: var(--text-muted);
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;

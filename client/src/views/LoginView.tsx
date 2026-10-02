@@ -38,7 +38,7 @@ export function LoginView() {
         <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--brand-primary)', marginBottom: 4 }}>
           Production Scheduler
         </div>
-        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>Sign in to continue</div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Sign in to continue</div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label>

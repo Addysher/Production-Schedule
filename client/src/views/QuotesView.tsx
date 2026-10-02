@@ -66,7 +66,7 @@ export function QuotesView() {
 
       <div className="card" style={{ maxWidth: 640 }}>
         <div style={{ fontWeight: 700, marginBottom: 12 }}>Quote Estimator</div>
-        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 16 }}>
           Time-based only — queue length + job duration × quantity. Setup times and operator availability are
           not factored in.
         </div>

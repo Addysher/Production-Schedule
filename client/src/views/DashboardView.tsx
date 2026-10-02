@@ -42,7 +42,7 @@ function Tile({
       }}
     >
       <div style={{ fontSize: 28, fontWeight: 700, color: accent ?? 'var(--brand-primary)' }}>{value}</div>
-      <div style={{ fontSize: 13, color: '#64748b' }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{label}</div>
     </div>
   )
 }
@@ -186,13 +186,13 @@ export function DashboardView() {
                   </div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--brand-primary)' }} data-testid={`station-eq-${station.id}`}>
                     {totalEqAToday.toFixed(1)}
-                    <span style={{ fontSize: 14, color: '#64748b', fontWeight: 600 }}> / {target ?? '—'}</span>
-                    <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}> Eq today</span>
+                    <span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600 }}> / {target ?? '—'}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-faint)', fontWeight: 400 }}> Eq today</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
                     Current: {current ? `${current.jobRef} — ${current.componentType ?? ''}` : '—'}
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     Next: {next ? `${next.jobRef} — ${next.componentType ?? ''}` : '—'}
                   </div>
                 </div>
@@ -252,7 +252,7 @@ export function DashboardView() {
                 ))}
                 {urgentJobs.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ color: '#94a3b8', textAlign: 'center' }}>
+                    <td colSpan={7} style={{ color: 'var(--text-faint)', textAlign: 'center' }}>
                       No urgent jobs
                     </td>
                   </tr>
@@ -277,7 +277,7 @@ export function DashboardView() {
                 }),
               )}
               {Object.values(overridesByStation).every((o) => o.length === 0) && (
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>None today</div>
+                <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None today</div>
               )}
             </div>
 
@@ -295,7 +295,7 @@ export function DashboardView() {
                   )}
                 </div>
               ))}
-              {creepAlerts.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>None</div>}
+              {creepAlerts.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None</div>}
             </div>
 
             <div>
@@ -310,10 +310,10 @@ export function DashboardView() {
                       {l.jobRef ? ` · ${l.jobRef}` : ''} — {l.outcome}
                     </div>
                     {l.message && <div style={{ color: '#475569' }}>{l.message}</div>}
-                    <div style={{ color: '#94a3b8' }}>{new Date(l.runAt).toLocaleString()}</div>
+                    <div style={{ color: 'var(--text-faint)' }}>{new Date(l.runAt).toLocaleString()}</div>
                   </div>
                 ))}
-              {logs.every((l) => l.outcome === 'success') && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nothing needs attention</div>}
+              {logs.every((l) => l.outcome === 'success') && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Nothing needs attention</div>}
             </div>
 
             <div>
@@ -323,10 +323,10 @@ export function DashboardView() {
                   <div style={{ fontWeight: 600 }}>
                     {l.taskName} — {l.outcome}
                   </div>
-                  <div style={{ color: '#94a3b8' }}>{new Date(l.runAt).toLocaleString()}</div>
+                  <div style={{ color: 'var(--text-faint)' }}>{new Date(l.runAt).toLocaleString()}</div>
                 </div>
               ))}
-              {logs.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>None yet</div>}
+              {logs.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None yet</div>}
             </div>
           </div>
         </CollapsibleSidePanel>

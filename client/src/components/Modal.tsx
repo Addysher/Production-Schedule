@@ -33,7 +33,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
     <label style={{ display: 'block' }}>
       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {children}
-      {hint && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>{hint}</div>}
     </label>
   )
 }

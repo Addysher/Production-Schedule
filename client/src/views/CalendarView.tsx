@@ -233,7 +233,7 @@ export function CalendarView() {
                   <button
                     key={m}
                     className="btn"
-                    style={{ background: mode === m ? 'var(--brand-primary)' : '#fff', color: mode === m ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
+                    style={{ background: mode === m ? 'var(--brand-primary)' : 'var(--card-bg)', color: mode === m ? '#fff' : 'var(--brand-primary)', borderRadius: 0 }}
                     onClick={() => setMode(m)}
                   >
                     {m[0].toUpperCase() + m.slice(1)}
@@ -261,7 +261,7 @@ export function CalendarView() {
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 {DAY_NAMES.map((n) => (
-                  <div key={n} style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#94a3b8', borderBottom: '1px solid #e2e8f0' }}>
+                  <div key={n} style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', borderBottom: '1px solid var(--border-subtle)' }}>
                     {n}
                   </div>
                 ))}
@@ -276,17 +276,17 @@ export function CalendarView() {
                       style={{
                         minHeight: 110,
                         padding: 6,
-                        borderBottom: '1px solid #f1f5f9',
-                        borderRight: '1px solid #f1f5f9',
+                        borderBottom: '1px solid var(--divider-faint)',
+                        borderRight: '1px solid var(--divider-faint)',
                         opacity: inMonth ? 1 : 0.4,
                         background: sameDay(d, new Date()) ? 'var(--sidebar-nav-active-bg)' : undefined,
                       }}
                     >
-                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: inMonth ? undefined : '#94a3b8' }}>{d.getDate()}</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: inMonth ? undefined : 'var(--text-faint)' }}>{d.getDate()}</div>
                       {shown.map(({ item, segment }, idx) => (
                         <CalendarBlock key={`${item.id}-${idx}`} item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
                       ))}
-                      {more > 0 && <div style={{ fontSize: 11, color: '#94a3b8', cursor: 'pointer' }} onClick={() => { setAnchorDate(d); setMode('day') }}>+{more} more</div>}
+                      {more > 0 && <div style={{ fontSize: 11, color: 'var(--text-faint)', cursor: 'pointer' }} onClick={() => { setAnchorDate(d); setMode('day') }}>+{more} more</div>}
                     </div>
                   )
                 })}
@@ -296,25 +296,25 @@ export function CalendarView() {
             <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
               <div style={{ display: 'flex', minWidth: 'max-content' }}>
                 {/* Sticky label column */}
-                <div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 2, borderRight: '1px solid #e2e8f0' }}>
-                  <div style={{ height: 40, borderBottom: '1px solid #e2e8f0' }} />
+                <div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 2, borderRight: '1px solid var(--border-subtle)' }}>
+                  <div style={{ height: 40, borderBottom: '1px solid var(--border-subtle)' }} />
                   {mode === 'day'
                     ? hours.map((h) => (
-                        <div key={h} style={{ height: ROW_HEIGHT, width: 64, fontSize: 11, color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                        <div key={h} style={{ height: ROW_HEIGHT, width: 64, fontSize: 11, color: 'var(--text-faint)', padding: '4px 8px', borderBottom: '1px solid var(--divider-faint)' }}>
                           {String(h).padStart(2, '0')}:00
                         </div>
                       ))
                     : weekDays.map((d) => (
-                        <div key={d.toISOString()} style={{ height: 90, width: 90, fontSize: 11, color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                        <div key={d.toISOString()} style={{ height: 90, width: 90, fontSize: 11, color: 'var(--text-faint)', padding: '4px 8px', borderBottom: '1px solid var(--divider-faint)' }}>
                           {DAY_NAMES[d.getDay()]} {d.getDate()}
                         </div>
                       ))}
                 </div>
 
                 {stations.map((station) => (
-                  <div key={station.id} style={{ width: 220, borderRight: '1px solid #e2e8f0', flexShrink: 0 }}>
+                  <div key={station.id} style={{ width: 220, borderRight: '1px solid var(--border-subtle)', flexShrink: 0 }}>
                     <div
-                      style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: 'var(--brand-primary)', borderBottom: '1px solid #e2e8f0' }}
+                      style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: 'var(--brand-primary)', borderBottom: '1px solid var(--border-subtle)' }}
                     >
                       {station.name}
                     </div>
@@ -326,7 +326,7 @@ export function CalendarView() {
                         onDrop={(e) => onDropOnStationDay(e, station, anchorDate)}
                       >
                         {hours.map((h) => (
-                          <div key={h} style={{ position: 'absolute', top: (h - shiftStartHour) * ROW_HEIGHT, width: '100%', height: ROW_HEIGHT, borderBottom: '1px solid #f1f5f9' }} />
+                          <div key={h} style={{ position: 'absolute', top: (h - shiftStartHour) * ROW_HEIGHT, width: '100%', height: ROW_HEIGHT, borderBottom: '1px solid var(--divider-faint)' }} />
                         ))}
                         {calendar.breaks.map((b) => {
                           const top = (hoursOf(b.start) - shiftStartHour) * ROW_HEIGHT
@@ -341,9 +341,9 @@ export function CalendarView() {
                                 height,
                                 left: 0,
                                 right: 0,
-                                background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 12px)',
+                                background: 'repeating-linear-gradient(45deg, var(--divider-faint), var(--divider-faint) 6px, var(--border-subtle) 6px, var(--border-subtle) 12px)',
                                 fontSize: 10,
-                                color: '#94a3b8',
+                                color: 'var(--text-faint)',
                                 padding: '1px 6px',
                                 zIndex: 0,
                               }}
@@ -385,7 +385,7 @@ export function CalendarView() {
                         {weekDays.map((d) => (
                           <div
                             key={d.toISOString()}
-                            style={{ height: 90, borderBottom: '1px solid #f1f5f9', padding: 2, overflow: 'auto' }}
+                            style={{ height: 90, borderBottom: '1px solid var(--divider-faint)', padding: 2, overflow: 'auto' }}
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => onDropOnStationDay(e, station, d)}
                           >
@@ -422,7 +422,7 @@ export function CalendarView() {
                   {j.jobRef}
                 </div>
               ))}
-              {queuedUnscheduled.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>None</div>}
+              {queuedUnscheduled.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None</div>}
             </div>
 
             <div>
@@ -432,7 +432,7 @@ export function CalendarView() {
                   {i.jobRef}
                 </div>
               ))}
-              {creepAlerts.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>None</div>}
+              {creepAlerts.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None</div>}
             </div>
 
             <div>
@@ -449,7 +449,7 @@ export function CalendarView() {
                       </span>
                     </div>
                     {s.dailyEqATarget ? (
-                      <div style={{ height: 6, background: '#e2e8f0', borderRadius: 3, marginTop: 3 }}>
+                      <div style={{ height: 6, background: 'var(--border-subtle)', borderRadius: 3, marginTop: 3 }}>
                         <div style={{ height: 6, width: `${pct}%`, background: 'var(--brand-primary)', borderRadius: 3 }} />
                       </div>
                     ) : null}

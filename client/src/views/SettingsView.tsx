@@ -41,7 +41,7 @@ export function SettingsView() {
             key={t.key}
             className="btn"
             style={{
-              background: tab === t.key ? 'var(--brand-primary)' : '#fff',
+              background: tab === t.key ? 'var(--brand-primary)' : 'var(--card-bg)',
               color: tab === t.key ? '#fff' : 'var(--brand-primary)',
               border: '1px solid var(--brand-primary)',
             }}
@@ -213,7 +213,7 @@ function ColorSetting({
         <option value={CUSTOM}>Custom…</option>
       </select>
       <input type="color" disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 40, height: 30, padding: 2 }} />
-      <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{value}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: 'monospace' }}>{value}</span>
     </div>
   )
 }
@@ -233,6 +233,10 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
     setSaving(true)
     try {
       const saved = await settingsApi.update(key, value)
+      // Deliberately does NOT clear a personal header-toggle override: once a user (including this
+      // admin) has explicitly picked a mode for their own browser, changing the sitewide default here
+      // must not silently override it — this control still saves the default (and this page's own
+      // button highlighting reflects it), it just may not be what you personally see rendered.
       applyTheme([...rows.filter((r) => r.key !== key), saved])
       onSaved(saved)
     } finally {
@@ -246,7 +250,7 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
       className="btn"
       disabled={saving}
       style={{
-        background: mode === m ? 'var(--brand-primary)' : '#fff',
+        background: mode === m ? 'var(--brand-primary)' : 'var(--card-bg)',
         color: mode === m ? '#fff' : 'var(--brand-primary)',
         border: '1px solid var(--brand-primary)',
         borderRadius: 0,
@@ -269,7 +273,7 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
           {modeButton('light', 'Light')}
           {modeButton('dark', 'Dark')}
         </div>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
           {saving ? 'Saving…' : mode === 'system' ? "Follows this PC's light/dark setting" : `Always ${mode}`}
         </span>
       </div>
@@ -499,7 +503,7 @@ function BatchLogSection() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={5} style={{ textAlign: 'center', color: '#94a3b8' }}>
+              <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                 No events yet
               </td>
             </tr>
