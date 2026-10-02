@@ -1,17 +1,18 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { EyeIcon } from '../components/EyeIcon'
 
 export function LoginView() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
+  async function doLogin() {
     setLoading(true)
     setError(null)
     try {
@@ -21,6 +22,21 @@ export function LoginView() {
       setError('Invalid username or password.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    doLogin()
+  }
+
+  // Belt-and-braces alongside the form's own onSubmit: a browser's native autofill/credential-suggestion
+  // dropdown can swallow the first Enter press meant for the form, so pressing Enter in either field
+  // triggers sign-in directly rather than relying solely on implicit form submission.
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      doLogin()
     }
   }
 
@@ -47,17 +63,46 @@ export function LoginView() {
               style={{ width: '100%' }}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={handleKeyDown}
               autoFocus
             />
           </label>
           <label>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Password</div>
-            <input
-              type="password"
-              style={{ width: '100%' }}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                style={{ width: '100%', paddingRight: 32 }}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+              <button
+                type="button"
+                aria-label="Hold to show password"
+                title="Hold to show password"
+                onPointerDown={() => setShowPassword(true)}
+                onPointerUp={() => setShowPassword(false)}
+                onPointerLeave={() => setShowPassword(false)}
+                onPointerCancel={() => setShowPassword(false)}
+                style={{
+                  position: 'absolute',
+                  right: 4,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  display: 'flex',
+                  background: 'none',
+                  border: 'none',
+                  padding: 4,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  userSelect: 'none',
+                }}
+              >
+                <EyeIcon crossed={showPassword} />
+              </button>
+            </div>
           </label>
         </div>
 
