@@ -186,14 +186,14 @@ The domain is the database model — see §4.2 for every entity and column. The 
 
 **How a schedule run works today** (`ScheduleGenerationService`):
 
-1. **In-flight work first.** Jobs that are `cut` or `in-production` are never re-planned. Each one occupies its station until its projected end:
+1. **Running work first.** Jobs that are `in-production` are never re-planned. Each one occupies its station until its projected end:
    - creep flagged and not yet approved → the original planned end (frozen);
    - otherwise → the remaining EqA (`TotalEqA − CompletedEqA`) placed from now.
    Their projected end updates `Jobs.EstimatedCompletionDate`. Their existing `ScheduleItems` row is not edited, so plan-vs-actual history survives (see the known issue in §9.4).
-2. **Queued work.** Jobs with `DesignStatus = FinalDesign` and status `ready` or `approved` are routed by `MachineAssigner`: pinned jobs go to their chosen station, everything else to the least-loaded matching station. Jobs with no matching active station are skipped and counted.
-3. **Sequence per station.** Earliest due date first (`EstBookedDeliveryDate`, else `ExpectedDeliveryDate`, else now + 14 days). If precedence edges exist between jobs on that station, a topological sort with EDD tie-breaks is used instead.
-4. **Place on the working calendar.** Each job's duration is `TotalEqA × MinsPerUnit` (from the `JobTypes` row matching its component type; 1 min/EqA if none). `WorkingCalendar` lays the work into the working window, skipping non-working days and breaks, and respecting the station's daily EqA capacity. A changeover from `SetupTimes` (previous job's component type → next job's) is added between consecutive jobs. Because each station runs a single component type, only same-type rows (e.g. `RoofTrusses → RoofTrusses`) can currently have any effect. A pinned job starts at its pinned date and doesn't push the others.
-5. **Write the plan.** Not-yet-started `ScheduleItems` for each queued job are replaced with a fresh row plus one `ScheduleSegment` per day. `AssignedStationId`, `EstimatedStartDate` and `EstimatedCompletionDate` are written back to the job.
+2. **Everything not yet started.** Jobs with `DesignStatus = FinalDesign` and status `ready`, `approved` or `cut` are routed by `MachineAssigner`: pinned jobs go to their pinned station, unmoved `cut` jobs stay on the station they were cut for, everything else goes to the least-loaded matching station. Jobs with no matching active station are skipped and counted.
+3. **Sequence per station.** Unmoved `cut` jobs first (in their existing order), then earliest due date first (`EstBookedDeliveryDate`, else `ExpectedDeliveryDate`, else now + 14 days); a topological sort with EDD tie-breaks is used if precedence edges exist. **Pinned jobs** are woven into that one sequence: a pinned job starts on its pinned day (or as soon as the station is free after it), and any job that wouldn't finish before that day waits until after it. Nothing on a station overlaps.
+4. **Place on the working calendar.** Each job's duration is `TotalEqA × MinsPerUnit` (from the `JobTypes` row matching its component type; 1 min/EqA if none). `WorkingCalendar` lays the work into the working window, skipping non-working days and breaks, and respecting the station's daily EqA capacity (a full day pushes the work, and its planned start, to the next day). A changeover from `SetupTimes` (previous job's component type → next job's) is added between consecutive jobs. Because each station runs a single component type, only same-type rows (e.g. `RoofTrusses → RoofTrusses`) can currently have any effect.
+5. **Write the plan.** Not-yet-started `ScheduleItems` for each of these jobs (including `cut` jobs) are replaced with a fresh row plus one `ScheduleSegment` per day. `AssignedStationId`, `EstimatedStartDate` and `EstimatedCompletionDate` are written back to the job.
 
 **When it runs:** after SCH files are imported (once per poll cycle), after any job create / edit / delete / pin / unpin, and when an admin presses **Recalculate** on the Calendar.
 
@@ -228,8 +228,8 @@ Every endpoint requires a valid JWT unless marked Public (a fallback policy enfo
 | `PUT` | `/{id}` | Admin | Edit job fields, re-run scheduler, return job + schedule result |
 | `DELETE` | `/{id}` | Admin | Delete job, re-run scheduler |
 | `POST` | `/{jobRef}/approve-for-cutting` | Admin | Move bundle folder DO NOT CUT → for Cutting; status `ready` → `approved` |
-| `POST` | `/{jobRef}/schedule-manually` | Admin | Pin to `{ stationId, scheduleDate }` (component type must match); re-run scheduler |
-| `DELETE` | `/{jobRef}/schedule-manually` | Admin | Unpin; re-run scheduler |
+| `POST` | `/{jobRef}/schedule-manually` | Admin, Supervisor | Pin to `{ stationId, scheduleDate }`. Component type must match, and the job must be FinalDesign and `ready` / `approved` / `cut` (in-production is refused). Re-runs the scheduler |
+| `DELETE` | `/{jobRef}/schedule-manually` | Admin, Supervisor | Unpin; re-run scheduler |
 
 **ScheduleController** — `/api/schedule`
 
@@ -662,9 +662,9 @@ Two more flags are computed alongside Late and drive the Dashboard (§5.2):
 ```
 
 - **Notification badge** (top bar): `[2 new jobs · 1 error]`, polled every 30 s. "New jobs" links to Jobs; "errors" opens the Dashboard's side panel. Each user's "last seen" point is kept per browser, so clicking a badge clears it.
-- **Theme toggle** (top bar): cycles Auto → Light → Dark (§5.17).
+- **Top bar order:** notification badge · username and role · **theme toggle** (Auto → Light → Dark, §5.17) · Log out.
 - **"N late"** (sidebar): count of past-due jobs.
-- **Change password** is available to every user.
+- There is no Change password button (removed in v3.0; admins reset passwords in Settings → Users, and passwords go away with Office 365 sign-in).
 
 ---
 
@@ -707,7 +707,10 @@ Two more flags are computed alongside Late and drive the Dashboard (§5.2):
 
 **Blocks** show the status colour, a **LATE** badge for past-due jobs and a creep badge when creep is flagged. **Double-click** opens the Job Detail Popup.
 
-**Drag-and-drop (Admin):** drag any non-completed block onto another station on another day. It only lands on a station with the same component type; anything else is refused with a message. A drop pins the job there (the same as Schedule manually) and re-runs the scheduler.
+**Drag-and-drop (Admin and Supervisor):** drag a **ready, approved or cut** job onto another station and/or day, in Day, Week or Month view. (In Month view, dropping on a day keeps the job's current station.) In-production and completed jobs can't be dragged. The cell under the pointer is outlined while dragging.
+- It only lands on a station with the same component type; anything else is refused with a message.
+- A drop pins the job (the same as Schedule manually) and re-runs the scheduler: the job starts on the day it was dropped, or as soon as the station is free after it. The station's other work moves around it with no overlaps, and the job's station and estimated dates update.
+- The job stays on that day through later recalculations until it's unpinned (Schedule manually → unpin).
 
 **Recalculate (Admin):** re-runs the scheduler to close gaps left by manual moves. See the in-flight display issue in §9.4.
 
@@ -1030,7 +1033,11 @@ A shift's own start/end times are stored but **do not shape the working window**
 - **Login form:** Enter in either field signs in, and a press-and-hold **eye icon** reveals the password only while held (it re-masks on release or when dragged off).
 - **Session:** the JWT (8 hours) is held in the browser's `sessionStorage`, so a page refresh keeps you signed in; closing the tab or browser, or logging out, ends it. An expired stored token is discarded on load, and any `401` from the API returns you to the login page.
 - **Usernames are case-sensitive** at login; passwords must be at least 8 characters.
-- **Roles today:** Admin (everything) and Viewer (read-only: every page except Settings, no edit/approve/drag controls, can still change their own password and theme).
+- **Roles today:**
+  - **Admin:** everything.
+  - **Supervisor:** what a Viewer can do, plus move jobs (Calendar drag-and-drop, Schedule manually / Reschedule). Added in v3.0; the rest of its intended permissions are still to be confirmed (§9.2).
+  - **Viewer:** read-only (every page except Settings; can change their own theme).
+- Roles are set in Settings → Users, including changing an existing user's role; unknown role names are rejected.
 
 The planned move to Office 365 sign-in is in §9.2.
 
@@ -1200,7 +1207,7 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 
 | # | Item | Impact |
 |---|---|---|
-| 1 | **Calendar after Recalculate with in-flight jobs** — cut / in-production jobs keep their original plan block, but the queue behind them re-flows from their *projected* end (§3.3). When the floor drifts from the plan, the Calendar shows overlapping blocks or gaps on that station | Misleading picture until the job finishes. Possible fix: keep the original plan for history but draw in-flight jobs at their projected position |
+| 1 | **Calendar with running jobs** — an in-production job keeps its original plan block, but the queue behind it re-flows from its *projected* end (§3.3). When the floor drifts from the plan, the Calendar can show an overlap or gap on that station. (Fixed for cut jobs in v3.0: they are now re-planned.) | Misleading picture until the job finishes. Possible fix: keep the original plan for history but draw running jobs at their projected position |
 | 2 | Operators / skills not assigned to work (`OperatorAvail` not wired; `OperatorId` always empty; no Operators screen) | Operator availability isn't a scheduling constraint |
 | 3 | No screens for Setup Times or Precedences; precedence only within one station | Database-only configuration |
 | 4 | ATCS sequencing and the TardinessCalc local-search loop are built but not wired | Scheduling is EDD only |

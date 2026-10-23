@@ -95,7 +95,7 @@ export function JobDetailPopup({
               Approve for cutting
             </button>
           )}
-          {user?.isAdmin && onScheduleManually && (
+          {user?.canReschedule && onScheduleManually && (
             <button className="btn btn-secondary" onClick={onScheduleManually}>
               {job.isManuallyScheduled ? 'Change pin' : 'Schedule manually'}
             </button>

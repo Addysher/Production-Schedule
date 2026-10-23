@@ -1,4 +1,4 @@
-export type Role = 'Admin' | 'Viewer'
+export type Role = 'Admin' | 'Supervisor' | 'Viewer'
 
 export interface LoginResponse {
   token: string

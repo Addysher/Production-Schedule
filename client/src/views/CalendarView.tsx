@@ -4,6 +4,7 @@ import { stationsApi } from '../api/stations'
 import { jobsApi } from '../api/jobs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
+import { isMovableStatus } from '../auth/permissions'
 import type { CalendarSettingsDto, JobDetailDto, JobSummaryDto, ScheduleItemDto, ScheduleSegmentDto, StationDto } from '../types/api'
 import { localIsoDate } from '../utils/dates'
 import { CalendarBlock } from '../components/CalendarBlock'
@@ -51,6 +52,7 @@ interface Block {
 interface DragPayload {
   jobRef: string
   componentType: string | null
+  stationId: number
 }
 
 export function CalendarView() {
@@ -67,6 +69,7 @@ export function CalendarView() {
   const [showAddStation, setShowAddStation] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
   const [dragError, setDragError] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -148,8 +151,8 @@ export function CalendarView() {
 
   const queuedUnscheduled = jobs.filter((j) => j.status === 'ready' && !j.stationId)
   const creepAlerts = items.filter((i) => i.creepDetected && !i.creepApprovedAt)
-  const canPin = (job: JobDetailDto) => !!user?.isAdmin && (job.status === 'ready' || job.status === 'approved') && !!job.componentType
-  const canDrag = (item: ScheduleItemDto) => !!user?.isAdmin && item.jobStatus !== 'completed'
+  const canPin = (job: JobDetailDto) => !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType
+  const canDrag = (item: ScheduleItemDto) => !!user?.canReschedule && isMovableStatus(item.jobStatus)
 
   async function recalculate() {
     setRecalculating(true)
@@ -166,16 +169,39 @@ export function CalendarView() {
   }
 
   function onBlockDragStart(e: DragEvent, item: ScheduleItemDto) {
-    const payload: DragPayload = { jobRef: item.jobRef, componentType: item.componentType }
+    const payload: DragPayload = { jobRef: item.jobRef, componentType: item.componentType, stationId: item.stationId }
     e.dataTransfer.setData('application/json', JSON.stringify(payload))
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  async function onDropOnStationDay(e: DragEvent, station: StationDto, date: Date) {
+  // Highlights the cell under the pointer while a job is being dragged.
+  const dropZone = (key: string) => ({
+    onDragOver: (e: DragEvent) => {
+      e.preventDefault()
+      setDropTarget(key)
+    },
+    style: dropTarget === key ? { outline: '2px dashed var(--brand-primary)', outlineOffset: -2 } : undefined,
+  })
+
+  function onDropOnDay(e: DragEvent, date: Date) {
     e.preventDefault()
+    setDropTarget(null)
     const raw = e.dataTransfer.getData('application/json')
     if (!raw) return
     const payload = JSON.parse(raw) as DragPayload
+    const station = stations.find((s) => s.id === payload.stationId)
+    if (station) void moveJob(payload, station, date)
+  }
+
+  async function onDropOnStationDay(e: DragEvent, station: StationDto, date: Date) {
+    e.preventDefault()
+    setDropTarget(null)
+    const raw = e.dataTransfer.getData('application/json')
+    if (!raw) return
+    await moveJob(JSON.parse(raw) as DragPayload, station, date)
+  }
+
+  async function moveJob(payload: DragPayload, station: StationDto, date: Date) {
     if (payload.componentType !== station.componentType) {
       setDragError(`'${station.name}' handles '${station.componentType}', but ${payload.jobRef} is '${payload.componentType ?? 'unknown'}'.`)
       return
@@ -273,6 +299,9 @@ export function CalendarView() {
                   return (
                     <div
                       key={d.toISOString()}
+                      data-drop={`m-${localIsoDate(d)}`}
+                      onDragOver={dropZone(`m-${d.toISOString()}`).onDragOver}
+                      onDrop={(e) => onDropOnDay(e, d)}
                       style={{
                         minHeight: 110,
                         padding: 6,
@@ -280,11 +309,20 @@ export function CalendarView() {
                         borderRight: '1px solid var(--divider-faint)',
                         opacity: inMonth ? 1 : 0.4,
                         background: sameDay(d, new Date()) ? 'var(--sidebar-nav-active-bg)' : undefined,
+                        ...dropZone(`m-${d.toISOString()}`).style,
                       }}
                     >
                       <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: inMonth ? undefined : 'var(--text-faint)' }}>{d.getDate()}</div>
                       {shown.map(({ item, segment }, idx) => (
-                        <CalendarBlock key={`${item.id}-${idx}`} item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
+                        <div
+                          key={`${item.id}-${idx}`}
+                          draggable={canDrag(item)}
+                          onDragStart={(e) => onBlockDragStart(e, item)}
+                          onDragEnd={() => setDropTarget(null)}
+                          style={{ cursor: canDrag(item) ? 'grab' : undefined }}
+                        >
+                          <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
+                        </div>
                       ))}
                       {more > 0 && <div style={{ fontSize: 11, color: 'var(--text-faint)', cursor: 'pointer' }} onClick={() => { setAnchorDate(d); setMode('day') }}>+{more} more</div>}
                     </div>
@@ -321,8 +359,8 @@ export function CalendarView() {
 
                     {mode === 'day' ? (
                       <div
-                        style={{ position: 'relative', height: hours.length * ROW_HEIGHT }}
-                        onDragOver={(e) => e.preventDefault()}
+                        style={{ position: 'relative', height: hours.length * ROW_HEIGHT, ...dropZone(`d-${station.id}`).style }}
+                        onDragOver={dropZone(`d-${station.id}`).onDragOver}
                         onDrop={(e) => onDropOnStationDay(e, station, anchorDate)}
                       >
                         {hours.map((h) => (
@@ -362,6 +400,7 @@ export function CalendarView() {
                               key={`${item.id}-${idx}`}
                               draggable={canDrag(item)}
                               onDragStart={(e) => onBlockDragStart(e, item)}
+                              onDragEnd={() => setDropTarget(null)}
                               style={{
                                 position: 'absolute',
                                 top: startOffsetH * ROW_HEIGHT,
@@ -385,12 +424,13 @@ export function CalendarView() {
                         {weekDays.map((d) => (
                           <div
                             key={d.toISOString()}
-                            style={{ height: 90, borderBottom: '1px solid var(--divider-faint)', padding: 2, overflow: 'auto' }}
-                            onDragOver={(e) => e.preventDefault()}
+                            style={{ height: 90, borderBottom: '1px solid var(--divider-faint)', padding: 2, overflow: 'auto', ...dropZone(`w-${station.id}-${d.toISOString()}`).style }}
+                            data-drop={`w-${station.id}-${localIsoDate(d)}`}
+                            onDragOver={dropZone(`w-${station.id}-${d.toISOString()}`).onDragOver}
                             onDrop={(e) => onDropOnStationDay(e, station, d)}
                           >
                             {blocksForStationDay(station.id, d).map(({ item, segment }, idx) => (
-                              <div key={`${item.id}-${idx}`} draggable={canDrag(item)} onDragStart={(e) => onBlockDragStart(e, item)} style={{ cursor: canDrag(item) ? 'grab' : undefined }}>
+                              <div key={`${item.id}-${idx}`} draggable={canDrag(item)} onDragStart={(e) => onBlockDragStart(e, item)} onDragEnd={() => setDropTarget(null)} style={{ cursor: canDrag(item) ? 'grab' : undefined }}>
                                 <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
                               </div>
                             ))}

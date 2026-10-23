@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { jobsApi } from '../api/jobs'
 import { useAuth } from '../auth/AuthContext'
+import { isMovableStatus } from '../auth/permissions'
 import type { JobDetailDto, JobStatus, JobSummaryDto, UpdateJobRequest } from '../types/api'
 import { StatusPill } from '../components/StatusPill'
 import { resolveStatusStyle } from '../components/statusStyles'
@@ -106,7 +107,7 @@ export function JobsView() {
   }
 
   const canPin = (job: { status: JobStatus; componentType: string | null }) =>
-    !!user?.isAdmin && (job.status === 'ready' || job.status === 'approved') && !!job.componentType
+    !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType
 
   const chip = (label: string, count: number, value: JobStatus | 'late' | '', color?: string) => (
     <button
@@ -169,19 +170,19 @@ export function JobsView() {
                           View
                         </button>
                         {user?.isAdmin && (
-                          <>
-                            <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setEditingJob(await detailOf(j.jobRef))}>
-                              Edit
-                            </button>
-                            {canPin(j) && (
-                              <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setPinningJob(await detailOf(j.jobRef))}>
-                                Schedule
-                              </button>
-                            )}
-                            <button className="btn btn-danger" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => remove(j.jobRef, j.id)}>
-                              Delete
-                            </button>
-                          </>
+                          <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setEditingJob(await detailOf(j.jobRef))}>
+                            Edit
+                          </button>
+                        )}
+                        {canPin(j) && (
+                          <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setPinningJob(await detailOf(j.jobRef))}>
+                            Schedule
+                          </button>
+                        )}
+                        {user?.isAdmin && (
+                          <button className="btn btn-danger" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => remove(j.jobRef, j.id)}>
+                            Delete
+                          </button>
                         )}
                       </div>
                     </td>

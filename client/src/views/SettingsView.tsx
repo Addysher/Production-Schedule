@@ -85,6 +85,11 @@ function UsersSection() {
     load()
   }
 
+  async function changeRole(u: UserDto, role: string) {
+    await usersApi.update(u.id, role, u.isActive)
+    load()
+  }
+
   async function resetPassword(u: UserDto) {
     const next = window.prompt(`New password for ${u.username} (at least 8 characters):`)
     if (next === null) return
@@ -113,7 +118,13 @@ function UsersSection() {
           {rows.map((u) => (
             <tr key={u.id}>
               <td>{u.username}</td>
-              <td>{u.role}</td>
+              <td>
+                <select value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
+                  <option value="Viewer">Viewer</option>
+                  <option value="Supervisor">Supervisor</option>
+                  <option value="Admin">Admin</option>
+                </select>
+              </td>
               <td>{u.isActive ? 'Yes' : 'No'}</td>
               <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '—'}</td>
               <td style={{ display: 'flex', gap: 6 }}>
@@ -133,6 +144,7 @@ function UsersSection() {
             <td>
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 <option value="Viewer">Viewer</option>
+                <option value="Supervisor">Supervisor</option>
                 <option value="Admin">Admin</option>
               </select>
             </td>

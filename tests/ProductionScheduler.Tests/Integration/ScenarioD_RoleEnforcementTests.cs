@@ -71,6 +71,46 @@ public class ScenarioD_RoleEnforcementTests
         Assert.Empty(failures);
     }
 
+    // Supervisors can move jobs on the Calendar (Schedule manually / unpin) and nothing else a Viewer can't.
+    private static readonly HashSet<string> OpenToSupervisor = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "api/jobs/1/schedule-manually",
+    };
+
+    [Fact]
+    public async Task Supervisor_IsForbiddenOnEveryMutatingEndpointExceptMovingJobs()
+    {
+        var admin = await _f.ClientAsync();
+        var create = await admin.PostAsJsonAsync("/api/users", new { username = "supervisor_d", password = "Super123!", role = "Supervisor" });
+        Assert.True(create.StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict);
+        var supervisor = await _f.ClientAsync("supervisor_d", "Super123!");
+
+        var mutating = DiscoverApiRoutes()
+            .Where(r => r.Method is "POST" or "PUT" or "DELETE")
+            .Where(r => !OpenToAnyRole.Contains(r.Path.TrimStart('/')) && !r.Path.EndsWith("/auth/login"))
+            .ToList();
+
+        var failures = new List<string>();
+        foreach (var (method, path) in mutating)
+        {
+            var response = await supervisor.SendAsync(Request(method, path));
+            var allowed = OpenToSupervisor.Contains(path.TrimStart('/'));
+            if (allowed && response.StatusCode == HttpStatusCode.Forbidden) failures.Add($"{method} {path} should be allowed, got 403");
+            if (!allowed && response.StatusCode != HttpStatusCode.Forbidden) failures.Add($"{method} {path} -> {(int)response.StatusCode}");
+        }
+
+        Assert.Empty(failures);
+    }
+
+    [Fact]
+    public async Task CreatingAUserWithAnUnknownRole_IsRejected()
+    {
+        var admin = await _f.ClientAsync();
+        var response = await admin.PostAsJsonAsync("/api/users", new { username = "role_typo", password = "Viewer123!", role = "Superviser" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task Anonymous_GetsUnauthorizedEverywhereExceptLogin()
     {

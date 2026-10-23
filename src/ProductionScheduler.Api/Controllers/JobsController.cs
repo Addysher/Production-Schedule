@@ -213,13 +213,23 @@ public class JobsController : ControllerBase
     }
 
     [HttpPost("{jobRef}/schedule-manually")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Supervisor")]
     public async Task<ActionResult<UpdateJobResponse>> ScheduleManually(string jobRef, ScheduleManuallyRequest request)
     {
         var job = await _db.Jobs.FirstOrDefaultAsync(j => j.JobRef == jobRef);
         if (job is null)
         {
             return NotFound();
+        }
+
+        // Only work that hasn't started can be moved: the scheduler re-plans 'ready'/'approved'/'cut'
+        // jobs, but a running job stays where it is, and a quote isn't scheduled at all. Saving a pin it
+        // would then ignore just makes a drag look like it silently failed.
+        if (job.DesignStatus != "FinalDesign" || job.Status is not ("ready" or "approved" or "cut"))
+        {
+            return BadRequest(job.Status == "in-production"
+                ? $"Job '{jobRef}' is already in production and can't be moved."
+                : $"Job '{jobRef}' can't be scheduled while it is '{job.Status}'.");
         }
 
         var station = await _db.Stations.AsNoTracking().FirstOrDefaultAsync(s => s.Id == request.StationId && s.IsActive);
@@ -247,7 +257,7 @@ public class JobsController : ControllerBase
     }
 
     [HttpDelete("{jobRef}/schedule-manually")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Supervisor")]
     public async Task<ActionResult<UpdateJobResponse>> UnpinSchedule(string jobRef)
     {
         var job = await _db.Jobs.FirstOrDefaultAsync(j => j.JobRef == jobRef);

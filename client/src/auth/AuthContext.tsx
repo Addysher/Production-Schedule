@@ -2,12 +2,21 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { authApi } from '../api/auth'
 import { setAuthToken, setUnauthorizedHandler } from '../api/client'
 import type { Role } from '../types/api'
+import { canRescheduleRole } from './permissions'
 
 interface AuthState {
   username: string
   role: Role
   isAdmin: boolean
+  canReschedule: boolean
 }
+
+const toAuthState = (username: string, role: Role): AuthState => ({
+  username,
+  role,
+  isAdmin: role === 'Admin',
+  canReschedule: canRescheduleRole(role),
+})
 
 interface StoredSession {
   token: string
@@ -68,7 +77,7 @@ function restoreSession(): AuthState | null {
   const stored = readStoredSession()
   if (!stored) return null
   setAuthToken(stored.token)
-  return { username: stored.username, role: stored.role, isAdmin: stored.role === 'Admin' }
+  return toAuthState(stored.username, stored.role)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -84,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const response = await authApi.login(username, password)
     setAuthToken(response.token)
     writeStoredSession({ token: response.token, username: response.username, role: response.role })
-    setUser({ username: response.username, role: response.role, isAdmin: response.role === 'Admin' })
+    setUser(toAuthState(response.username, response.role))
   }, [])
 
   // A 401 from any API call (expired/invalid token) drops the session back to the login screen.

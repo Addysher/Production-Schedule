@@ -18,14 +18,19 @@ public interface IScheduleGenerationService
 // Orchestrates the pure engine components (MachineAssigner, Sequencer, PrecedenceGraph, SetupResolver)
 // against live data and persists the result to ScheduleItems / Jobs.
 //
-// Queued work (FinalDesign, status 'ready'/'approved') is (re)planned on every run. Work already on the
-// floor ('cut' / 'in-production') is never re-planned, but it does occupy its station: queued jobs start
-// after its projected end. That projection is:
+// Every job that hasn't started production (FinalDesign, status 'ready'/'approved'/'cut') is (re)planned on
+// every run. A 'cut' job stays on the station it was cut for and at the front of that station's queue,
+// unless someone moves it. Work already running ('in-production') is never re-planned, but it does occupy
+// its station: everything else starts after its projected end. That projection is:
 //   * creep flagged and not yet approved -> the frozen plan (§5.14: "the scheduler will not move this job
 //     until CreepApprovedAt IS NOT NULL"), so a slipping job doesn't silently drag the queue behind it;
 //   * otherwise                          -> the work still to do (TotalEqA - CompletedEqA) placed from now,
 //     which is what makes approving creep actually change the schedule.
-// The original ScheduleItem plan is never edited, so plan-vs-actual history survives.
+// A running job's original ScheduleItem plan is never edited, so plan-vs-actual history survives.
+//
+// Pinned jobs (Schedule manually / Calendar drag-and-drop) start on their pinned day — or as soon as the
+// station is free after it — and the station's other work flows around them in one sequence, so nothing
+// overlaps: a job that wouldn't finish before a pinned job's day waits until after it.
 //
 // Capacity: a station's per-day EqA limit is its StationCapacityOverride for that date if one exists,
 // otherwise Stations.DailyEqATarget; null means unlimited.
@@ -62,14 +67,14 @@ public class ScheduleGenerationService : IScheduleGenerationService
         var queued = (await _db.Jobs
                 .Where(j => !j.IsArchived
                     && j.DesignStatus == "FinalDesign"
-                    && (j.Status == "ready" || j.Status == "approved")
+                    && (j.Status == "ready" || j.Status == "approved" || j.Status == "cut")
                     && j.ComponentType != null)
                 .ToListAsync(ct))
             .Where(j => !frozenPlanEnds.ContainsKey(j.JobRef))
             .ToList();
 
         var inFlight = await _db.Jobs
-            .Where(j => !j.IsArchived && (j.Status == "cut" || j.Status == "in-production") && j.AssignedStationId != null)
+            .Where(j => !j.IsArchived && j.Status == "in-production" && j.AssignedStationId != null)
             .OrderBy(j => j.EstimatedStartDate)
             .ToListAsync(ct);
 
@@ -139,7 +144,14 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         // --- Queued work: route what can be routed, skip (and report) what cannot. ---
         bool IsEffectivelyPinned(Job j) => j.IsManuallyScheduled && j.ManualStationId is int id && activeStationIds.Contains(id);
-        bool IsRoutable(Job j) => IsEffectivelyPinned(j) || stations.Any(s => s.ComponentType == j.ComponentType);
+
+        // A pinned job goes to its pinned station; an unmoved cut job stays on the station it was cut for
+        // (if that station is still active and still makes its product); everything else is routed.
+        int? FixedStation(Job j) =>
+            IsEffectivelyPinned(j) ? j.ManualStationId
+            : j.Status == "cut" && j.AssignedStationId is int assigned && stations.Any(s => s.Id == assigned && s.ComponentType == j.ComponentType) ? assigned
+            : null;
+        bool IsRoutable(Job j) => FixedStation(j) is not null || stations.Any(s => s.ComponentType == j.ComponentType);
 
         var routable = queued.Where(IsRoutable).ToList();
         var skipped = queued.Count - routable.Count;
@@ -147,7 +159,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         var assignments = MachineAssigner.Assign(
             routable.Select(j => new MachineAssignerJob(
-                j.JobRef, j.ComponentType!, DurationMinutesFor(j), IsEffectivelyPinned(j), j.ManualStationId)),
+                j.JobRef, j.ComponentType!, DurationMinutesFor(j), FixedStation(j) is not null, FixedStation(j))),
             stations.Select(s => new MachineAssignerStation(s.Id, s.ComponentType, s.IsActive)));
 
         var precedenceEdges = await _db.Precedences
@@ -160,62 +172,105 @@ public class ScheduleGenerationService : IScheduleGenerationService
         foreach (var stationGroup in assignments.GroupBy(a => a.StationId))
         {
             var station = stations.Single(s => s.Id == stationGroup.Key);
-            var stationJobRefs = stationGroup.Select(a => a.JobRef).ToHashSet();
-            var stationJobs = stationJobRefs.Select(r => jobsByRef[r]).ToList();
+            var stationJobs = stationGroup.Select(a => jobsByRef[a.JobRef]).ToList();
 
+            var pinned = stationJobs
+                .Where(j => IsEffectivelyPinned(j) && j.ManualScheduleDate is not null)
+                .OrderBy(j => j.ManualScheduleDate).ThenBy(DueDateFor)
+                .ToList();
+            var pinnedRefs = pinned.Select(j => j.JobRef).ToHashSet();
+
+            // Cut jobs are already through the saw, so they keep their place at the front of the line.
+            var cutFirst = stationJobs
+                .Where(j => !pinnedRefs.Contains(j.JobRef) && j.Status == "cut")
+                .OrderBy(j => j.EstimatedStartDate ?? DateTime.MaxValue).ThenBy(DueDateFor)
+                .Select(j => j.JobRef);
+
+            var flexibleRefs = stationJobs
+                .Where(j => !pinnedRefs.Contains(j.JobRef) && j.Status != "cut")
+                .Select(j => j.JobRef)
+                .ToHashSet();
             var relevantEdges = precedenceEdges
-                .Where(e => stationJobRefs.Contains(e.PredecessorJobRef) && stationJobRefs.Contains(e.SuccessorJobRef))
+                .Where(e => flexibleRefs.Contains(e.PredecessorJobRef) && flexibleRefs.Contains(e.SuccessorJobRef))
                 .Select(e => (e.PredecessorJobRef, e.SuccessorJobRef))
                 .ToList();
 
             // EDD is the primary sequencing rule; precedence edges are a hard constraint on top of it.
-            List<string> order;
-            if (relevantEdges.Count > 0)
-            {
-                order = PrecedenceGraph.TopologicalSort(stationJobRefs, relevantEdges, r => DueDateFor(jobsByRef[r]));
-            }
-            else
-            {
-                order = Sequencer.SequenceEdd(stationJobs
+            var flexibleOrder = relevantEdges.Count > 0
+                ? PrecedenceGraph.TopologicalSort(flexibleRefs, relevantEdges, r => DueDateFor(jobsByRef[r]))
+                : Sequencer.SequenceEdd(flexibleRefs.Select(r => jobsByRef[r])
                     .Select(j => new SequencerJob(j.JobRef, j.ComponentType!, DueDateFor(j), DurationMinutesFor(j))));
-            }
 
             var cursor = busyUntil[station.Id];
             string? previousComponentType = null;
+            var usedEqa = usedEqaByStation[station.Id];
 
-            foreach (var jobRef in order)
+            DateTime PinStart(Job j) => WorkingCalendar.AdvanceToWorkingWindow(
+                j.ManualScheduleDate!.Value.ToDateTime(new TimeOnly(shiftStartHour, 0)), shiftStartHour, shiftEndHour, workingDays, breaks);
+
+            async Task<DateTime> EarliestStartAsync(Job job, DateTime? notBefore)
+            {
+                var setupMinutes = previousComponentType is null
+                    ? 0
+                    : await _setupResolver.GetSetupMinutesAsync(previousComponentType, job.ComponentType!, ct);
+                var t = setupMinutes > 0
+                    ? WorkingCalendar.PlaceDuration(cursor, setupMinutes, shiftStartHour, shiftEndHour, workingDays, breaks)
+                    : cursor;
+                if (notBefore is DateTime nb && nb > t)
+                {
+                    t = nb;
+                }
+
+                return WorkingCalendar.AdvanceToWorkingWindow(t, shiftStartHour, shiftEndHour, workingDays, breaks);
+            }
+
+            // Dry run on a copy of the day-capacity tally, so asking "would it fit?" books nothing.
+            DateTime WouldEnd(Job job, DateTime start) => WorkingCalendar.PlaceWork(start, (double)(job.TotalEqA ?? 0), MinsPerEqa(job),
+                shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), new Dictionary<DateOnly, double>(usedEqa), breaks);
+
+            var pinQueue = new Queue<Job>(pinned);
+            foreach (var jobRef in cutFirst.Concat(flexibleOrder))
             {
                 var job = jobsByRef[jobRef];
-                DateTime plannedStart, plannedEnd;
-                var eqa = (double)(job.TotalEqA ?? 0);
-                var segments = new List<WorkSegment>();
-
-                if (IsEffectivelyPinned(job) && job.ManualScheduleDate is DateOnly manualDate)
+                while (pinQueue.Count > 0)
                 {
-                    // A pinned job's placement is fixed by the admin and does not consume/advance
-                    // the shared cursor — other flexible jobs on this station schedule around it.
-                    plannedStart = WorkingCalendar.AdvanceToWorkingWindow(
-                        manualDate.ToDateTime(new TimeOnly(shiftStartHour, 0)), shiftStartHour, shiftEndHour, workingDays, breaks);
-                    plannedEnd = WorkingCalendar.PlaceWork(plannedStart, eqa, MinsPerEqa(job),
-                        shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[station.Id], breaks, segments);
-                }
-                else
-                {
-                    var setupMinutes = previousComponentType is null
-                        ? 0
-                        : await _setupResolver.GetSetupMinutesAsync(previousComponentType, job.ComponentType!, ct);
-
-                    if (setupMinutes > 0)
+                    var pin = pinQueue.Peek();
+                    var pinStart = PinStart(pin);
+                    var start = await EarliestStartAsync(job, null);
+                    if (pinStart > start && WouldEnd(job, start) <= pinStart)
                     {
-                        cursor = WorkingCalendar.PlaceDuration(cursor, setupMinutes, shiftStartHour, shiftEndHour, workingDays, breaks);
+                        break; // this job finishes before the pinned day, so it goes first
                     }
 
-                    plannedStart = WorkingCalendar.AdvanceToWorkingWindow(cursor, shiftStartHour, shiftEndHour, workingDays, breaks);
-                    plannedEnd = WorkingCalendar.PlaceWork(plannedStart, eqa, MinsPerEqa(job),
-                        shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[station.Id], breaks, segments);
-                    cursor = plannedEnd;
-                    previousComponentType = job.ComponentType;
+                    pinQueue.Dequeue();
+                    await PlaceAsync(pin, pinStart);
                 }
+
+                await PlaceAsync(job, null);
+            }
+
+            while (pinQueue.Count > 0)
+            {
+                var pin = pinQueue.Dequeue();
+                await PlaceAsync(pin, PinStart(pin));
+            }
+
+            async Task PlaceAsync(Job job, DateTime? notBefore)
+            {
+                var jobRef = job.JobRef;
+                var segments = new List<WorkSegment>();
+                var plannedStart = await EarliestStartAsync(job, notBefore);
+                var plannedEnd = WorkingCalendar.PlaceWork(plannedStart, (double)(job.TotalEqA ?? 0), MinsPerEqa(job),
+                    shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqa, breaks, segments);
+
+                // A full day (capacity) pushes the work to a later day — the plan starts where the work does.
+                if (segments.Count > 0)
+                {
+                    plannedStart = segments[0].Start;
+                }
+
+                cursor = plannedEnd;
+                previousComponentType = job.ComponentType;
 
                 // Replace any existing (not-yet-started) plan for this job — the schedule is being recalculated.
                 var existing = await _db.ScheduleItems

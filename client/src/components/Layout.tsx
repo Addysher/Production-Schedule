@@ -5,7 +5,6 @@ import { jobsApi } from '../api/jobs'
 import { notificationsApi } from '../api/reports'
 import { settingsApi } from '../api/admin'
 import { applyTheme, cycleThemeOverride, getThemeOverride, onThemeChanged, type ThemeMode } from '../theme/applyTheme'
-import { ChangePasswordModal } from './ChangePasswordModal'
 
 const THEME_ICON: Record<ThemeMode, string> = { system: '\u{1F4BB}', light: '☀️', dark: '\u{1F319}' }
 const THEME_LABEL: Record<ThemeMode, string> = { system: 'Auto', light: 'Light', dark: 'Dark' }
@@ -90,7 +89,6 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [lateCount, setLateCount] = useState(0)
-  const [changingPassword, setChangingPassword] = useState(false)
   const [themeOverride, setThemeOverride] = useState<ThemeMode>(() => getThemeOverride())
   const { counts, acknowledge } = useNotifications(user?.username)
 
@@ -191,16 +189,6 @@ export function Layout({ children }: { children: ReactNode }) {
             gap: 12,
           }}
         >
-          <button
-            type="button"
-            onClick={toggleTheme}
-            title={`Theme: ${THEME_LABEL[themeOverride]} (click to change)`}
-            className="btn btn-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <span aria-hidden="true">{THEME_ICON[themeOverride]}</span>
-            {THEME_LABEL[themeOverride]}
-          </button>
           {(counts.newJobs > 0 || counts.errors > 0) && (
             <div data-testid="notification-badge" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               {counts.newJobs > 0 && (
@@ -228,8 +216,15 @@ export function Layout({ children }: { children: ReactNode }) {
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             {user?.username} &middot; {user?.role}
           </span>
-          <button className="btn btn-secondary" onClick={() => setChangingPassword(true)}>
-            Change password
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={`Theme: ${THEME_LABEL[themeOverride]} (click to change)`}
+            className="btn btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span aria-hidden="true">{THEME_ICON[themeOverride]}</span>
+            {THEME_LABEL[themeOverride]}
           </button>
           <button
             className="btn btn-secondary"
@@ -243,7 +238,6 @@ export function Layout({ children }: { children: ReactNode }) {
         </header>
         <main style={{ flex: 1, padding: 24, overflow: 'auto' }}>{children}</main>
       </div>
-      {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
   )
 }

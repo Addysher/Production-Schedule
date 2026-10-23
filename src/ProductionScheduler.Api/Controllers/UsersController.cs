@@ -23,6 +23,13 @@ public class UsersController : ControllerBase
         _passwordHasher = passwordHasher;
     }
 
+    // Role names are matched exactly by [Authorize(Roles = ...)], so anything else would create an
+    // account that can sign in but can do nothing.
+    private static readonly string[] ValidRoles = ["Admin", "Supervisor", "Viewer"];
+
+    private static string? InvalidRole(string role) =>
+        ValidRoles.Contains(role) ? null : $"Role must be one of: {string.Join(", ", ValidRoles)}.";
+
     private static UserDto ToDto(User u) => new(u.Id, u.Username, u.Role, u.IsActive, u.CreatedAt, u.LastLoginAt);
 
     [HttpGet]
@@ -45,6 +52,11 @@ public class UsersController : ControllerBase
         if (PasswordPolicy.Validate(request.Password) is { } weak)
         {
             return BadRequest(weak);
+        }
+
+        if (InvalidRole(request.Role) is { } badRole)
+        {
+            return BadRequest(badRole);
         }
 
         if (await _db.Users.AnyAsync(u => u.Username == request.Username))
@@ -72,6 +84,11 @@ public class UsersController : ControllerBase
         if (user is null)
         {
             return NotFound();
+        }
+
+        if (InvalidRole(request.Role) is { } badRole)
+        {
+            return BadRequest(badRole);
         }
 
         user.Role = request.Role;
