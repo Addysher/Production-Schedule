@@ -34,7 +34,7 @@ public static class DatabaseSeeder
         ("NightlyMaintenanceRunHour", "1"), // not named in the doc ("configurable, default 01:00") — see NightlyMaintenanceService
         ("FreezeWindowDays", "3"), // v3.0 lock-out: today + this many working days are frozen; 0 = off (see FreezeWindow)
 
-        // v3.0 email reports (§5.17, EmailReportService). A report with no recipient isn't sent.
+        // v3.0 email reports (§5.21, EmailReportService). A report with no recipient isn't sent.
         ("SmtpHost", ""),
         ("SmtpPort", "25"),
         ("SmtpUseSsl", "false"),

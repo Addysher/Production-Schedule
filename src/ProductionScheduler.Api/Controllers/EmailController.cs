@@ -12,7 +12,7 @@ public record EmailReportStatusDto(string Key, string Title, string Recipients, 
 
 public record SendEmailResultDto(bool Sent, string Message);
 
-// Settings → Email (§5.17): what each report is set to, a preview of what it would contain now, and a
+// Settings → Email (§5.21): what each report is set to, a preview of what it would contain now, and a
 // Send now button. The schedule itself runs in EmailReportService.
 [ApiController]
 [Route("api/email")]

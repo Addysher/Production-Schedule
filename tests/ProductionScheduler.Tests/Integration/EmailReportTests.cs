@@ -11,7 +11,7 @@ using Xunit;
 
 namespace ProductionScheduler.Tests.Integration;
 
-// §5.17 email reports: what each contains, that each goes once per working day, and that the mail
+// §5.21 email reports: what each contains, that each goes once per working day, and that the mail
 // settings stay private.
 [Collection(IntegrationCollection.Name)]
 public class EmailReportTests

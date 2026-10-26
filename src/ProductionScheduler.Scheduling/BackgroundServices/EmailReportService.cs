@@ -8,7 +8,7 @@ using ProductionScheduler.Scheduling.Email;
 
 namespace ProductionScheduler.Scheduling.BackgroundServices;
 
-// §5.17 — sends each email report once per working day, at or after its Admin-set hour. A report with no
+// §5.21 — sends each email report once per working day, at or after its Admin-set hour. A report with no
 // recipient is switched off. Every attempt is written to MaintenanceLogs (task "Email{Report}"), which is
 // also how a send is remembered: a success today means done; three failures today means give up until
 // tomorrow (Settings → Email → Send now still works) rather than retrying every minute.

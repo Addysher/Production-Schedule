@@ -3,7 +3,7 @@ import { emailApi, settingsApi, type EmailReportStatusDto } from '../api/admin'
 import { Field, errorText } from '../components/Modal'
 import type { SettingDto } from '../types/api'
 
-// Settings → Email (§5.17): the SMTP relay, and who gets each daily report and when. Everything is
+// Settings → Email (§5.21): the SMTP relay, and who gets each daily report and when. Everything is
 // stored as ordinary settings; this tab is just a friendlier form over them.
 const SMTP_FIELDS: { key: string; label: string; hint?: string; type?: string }[] = [
   { key: 'SmtpHost', label: 'SMTP server', hint: 'e.g. smtp.office365.com or the internal relay IT provides' },

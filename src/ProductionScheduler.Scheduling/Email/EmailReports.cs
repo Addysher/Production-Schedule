@@ -7,7 +7,7 @@ namespace ProductionScheduler.Scheduling.Email;
 
 public sealed record EmailReport(string Key, string Subject, string HtmlBody, int RowCount);
 
-// v3.0 email reports (§5.17). Each goes to one address or IT-managed distribution list, once a working day
+// v3.0 email reports (§5.21). Each goes to one address or IT-managed distribution list, once a working day
 // at an Admin-set hour. The layout is a plain HTML table for now; the final form is still to be agreed.
 public static class EmailReports
 {
@@ -78,7 +78,7 @@ public static class EmailReports
         return new EmailReport(NextDayJobs, $"Production plan for {day:ddd d MMM}: {rows.Select(r => r.JobRef).Distinct().Count()} job(s)", Wrap(html), rows.Count);
     }
 
-    // §5.17 option (a): jobs still at quote stage whose due date is within the next N days (or already
+    // §5.21 option (a): jobs still at quote stage whose due date is within the next N days (or already
     // past) — they need their final design soon to be made in time. Quote jobs aren't scheduled, so the
     // due date (est. booked delivery, else expected delivery) is what "scheduled within N days" means.
     private static async Task<EmailReport> ReadyForProductionAsync(AppDbContext db, DateTime now, CancellationToken ct)

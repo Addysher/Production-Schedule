@@ -26,13 +26,15 @@
 | Job total EqA | Sum of SCH member **fields 13 + 14** (SetupJig + ProcessJig). v1.0's "field 23" was wrong | §5.8 |
 | Production tracking | PRD files polled per station (not yet tested against a real PRD file) | §5.9 |
 | Cut signal | Folder renamed `{JobRef}__DONE`, watched in any configured path | §5.12 |
-| File bundling | MME files bundled into per-job folders by the system | §5.11 |
+| File bundling | MME files staged per job, moved to the waiting folder once every member has its file; Approve for cutting stays manual | §5.11 |
 | Scheduling | EDD sequencing + same-station precedence + setup times + daily capacity + breaks. ATCS built, not wired | §3.3 |
 | Calendar | Day / Week / Month views, drag-and-drop rescheduling, Recalculate button, live "now" line | §5.3 |
 | At risk / behind schedule | Computed from the schedule vs the due date and vs now | §5.2, §8.2 |
-| Auth (current) | Local accounts, BCrypt, JWT (8 h), Admin / Viewer roles, session survives refresh | §8.1 |
+| Auth (current) | Local accounts, BCrypt, JWT (8 h), Admin / Supervisor / Viewer / Kiosk roles, re-checked on every request, session survives refresh | §5.19 |
 | Auth (planned) | Office 365 / Entra ID sign-in; app roles Admin / Supervisor / Kiosk assigned by IT | §9.2 |
-| Station grouping | `Stations.ComponentType`; Factories planned on top | §4.2, §9.3 |
+| Station grouping | Products (pool folders) decide which stations can make a job; Factories group stations for the kiosk | §5.16, §5.22 |
+| Freeze window | Today + N working days (default 3) frozen; no moves in or out | §5.20 |
+| Email reports | Next day's jobs, jobs needing final design, daily production values — SMTP, once per working day | §5.21 |
 | Plan vs actuals | `ScheduleItems` carry plan + actuals; `ScheduleSegments` hold the per-day split | §4.2 |
 | Appearance | Brand colours (default `#0A5E73` / `#FDB913`) editable in Admin; light / dark / auto mode | §5.17 |
 
@@ -69,6 +71,20 @@
 | "CHANGE PASSWORD" BUTTON TO BE REMOVED OFF THE HEADER |  
 | CALENDAR TO IMPLEMENT A DRAG&DROP FEATURE FOR THE JOBS IN CALENDAR | JOBS INFORMATION TO UPDATE AUTOMATICALLY BASED ON MOVEMENT |
 
+**Status (26 Oct 2026):**
+
+| V3.0 item | State | Where |
+|---|---|---|
+| Pool-folder SCH / MPS workflow | Done: overnight MPS move at an Admin-set hour, follows reschedules, archived at shift end or on delete | §5.16, §5.13 |
+| Three email reports | Done over SMTP, with recipient and time per report. Email layout ("custom form") is TBC | §5.21 |
+| MME saw-file workflow | Done: drop → staging → waiting once complete → cutting on Approve. Automatic "ready to cut" logic is TBC, so Approve stays manual | §5.11 |
+| Products decided by pool folder; set up in Admin | Done | §5.16 |
+| Theme toggle beside the user name | Done | §5.1 |
+| Change password removed | Done | §5.19 |
+| Calendar drag-and-drop with automatic updates | Done for Admin and Supervisor; the drop pushes the displaced job back | §5.3 |
+| Lock-out (freeze) window *(added during review)* | Done | §5.20 |
+| Factories and kiosk *(planned)* | Done, apart from long kiosk sessions (Office 365) | §5.22 |
+
 ---
 
 ## 1. Project Overview
@@ -85,7 +101,7 @@ A **custom web-based production scheduler** built to replace the factory's legac
 | Hardening + gap-closing passes | Done (multi-day segments, shift breaks, station/shift/job-type editors, Schedule manually, notification badge) |
 | SCH import | Verified against three real Sapphire files (roof trusses, floor trusses, wall frames) |
 | UI/UX round (Oct 2026) | Done: appearance settings, dark mode, Calendar views + drag-and-drop + Recalculate + now line, Dashboard risk tiles with actions, login improvements |
-| Automated tests | 147 passing (unit + end-to-end integration against a real SQL Server database) |
+| Automated tests | 199 passing (unit + end-to-end integration against a real SQL Server database) |
 | PRD reader | Built and tested with synthetic files; **not yet tested against a real PaperlessJig file** |
 | Deployment | Not started (§9.5) |
 
@@ -899,17 +915,35 @@ Superseded by the current schema in §4.2 (`JobMembers` with `SetupEqA` / `Proce
 
 `MmeFileWatcherService` replaces the old bundling program. Every `MmePollIntervalSeconds` (default 300) it scans `RawFilesPath` for `.mme` cut-list files, one per member, named `{JobRef}{MemberID}.mme`.
 
+**The v3.0 workflow:**
+
+```
+RawFilesPath (drop) ─► RawFilesPath\_bundling\{JobRef} ─(every member has its file)─► SawFilesDoNotCutPath\{JobRef}   (waiting)
+                                                         Approve for cutting (manual) ─► SawFilesForCuttingPath\{JobRef} (cutting)
+```
+
+**File names:**
 - **JobRef** = file name without extension, minus its last 3 characters (`59778MWFE17` → `59778MWF`).
-- Files are grouped by JobRef and moved into `SawFilesDoNotCutPath\{JobRef}\`, creating the folder if needed. Later passes add any further files to the same folder; existing files are never overwritten.
-- A bundle with no matching job is logged as a warning.
+- **Member ID** = those last 3 characters (`E17`).
 
-**Approve for cutting** (`POST /api/jobs/{jobRef}/approve-for-cutting`, Admin, job must be `ready`):
-1. Both saw-file path settings must be set, and `SawFilesDoNotCutPath\{JobRef}\` must exist.
-2. The folder is moved to `SawFilesForCuttingPath\{JobRef}\`.
-3. Status → `approved`; `ApprovedForCuttingAt` and `ApprovedByUserId` recorded.
-4. If the folder is missing or the move fails, nothing changes and the error message is shown.
+**How files move:**
+- A file is only picked up once it has been unchanged for `SchFileSettleSeconds` (it may still be being written).
+- Each file is handled on its own: one locked file never holds up the rest. A file that isn't named `{JobRef}{MemberID}.mme` goes to `RawFilesPath\_errors` and is logged.
+- Files collect in the staging folder `_bundling\{JobRef}`. The bundle moves to the **waiting** folder only when **every member in the job's design has its file**.
+  - Saw files that arrive before the SCH import wait there for it.
+  - A job with no members is never complete.
+- **A late or revised file** for a bundle already in the waiting folder replaces the older copy, because the design program is the source of truth.
+- **Once the job is approved**, new files are **held** in staging. They are logged as an error ("check whether the saw has the latest design"), so the saw's folder is never changed under it.
+- Each job records where its bundle is: `SawBundleStatus` = none / `bundling` / `waiting` / `cutting`, plus `SawFileCount`. The job popup shows this as **Saw files**, and the next-day email includes it.
 
-The Approve button currently shows on **every** `ready` job, not only those whose bundle folder exists; a click with no folder returns a clear error (§9.4).
+**Approve for cutting** (`POST /api/jobs/{jobRef}/approve-for-cutting[?force=true]`, Admin, job must be `ready`). This is still a manual step; the automatic "ready to cut" logic is TBC.
+1. Both saw-file path settings must be set.
+2. A complete bundle (waiting folder) moves to `SawFilesForCuttingPath\{JobRef}\`.
+3. An incomplete bundle (still in staging) gets **409** with the file/member counts. The UI asks "Approve anyway?" and resends with `force=true`. This covers a member that legitimately has no saw file.
+4. With no saw files at all, the request is refused with a reason. It is also refused if the cutting folder already has a folder of that name.
+5. On success: status → `approved`, `SawBundleStatus` → `cutting`, and `ApprovedForCuttingAt` / `ApprovedByUserId` are recorded. If the move fails, nothing changes.
+
+**Where the button appears:** only on `ready` jobs that have saw files. Bulk approve only sends complete bundles.
 
 ---
 
@@ -1060,9 +1094,67 @@ A shift's own start/end times are stored but **do not shape the working window**
   - **Admin:** everything.
   - **Supervisor:** what a Viewer can do, plus move jobs (Calendar drag-and-drop, Schedule manually / Reschedule). Added in v3.0; the rest of its intended permissions are still to be confirmed (§9.2).
   - **Viewer:** read-only (every page except Settings; can change their own theme).
+  - **Kiosk:** a factory-floor display account. Signs straight into the kiosk page (§5.22), can't open any other page and can't change anything.
 - Roles are set in Settings → Users, including changing an existing user's role; unknown role names are rejected.
+- **Changes apply immediately.** Every request re-checks the account. Deactivating a user or changing their role takes effect on their next click, not when their 8-hour token expires.
+- **There is always an Admin.** The last active Admin can't be demoted or deactivated.
+- Non-Admins only receive the theme settings from `GET /api/settings`. The SMTP password is never sent to any browser (§5.21).
 
 The planned move to Office 365 sign-in is in §9.2.
+
+### 5.20 Freeze (lock-out) window *(v3.0)*
+
+Near-term production is frozen so the floor isn't disrupted.
+
+- **The window:** today plus the next `FreezeWindowDays` **working** days (default 3). Set the value to 0 to switch the freeze off.
+- **What is frozen:** a not-yet-started job (ready / approved / cut) whose plan starts inside the window.
+  - **The scheduler** keeps it exactly where it is, and new work can only fill time after it on that station.
+  - **Manual moves:** no one can drag or pin a frozen job, and no one can move another job *into* the window. This includes Admins, and the server refuses with a reason.
+- **Calendar:** frozen days are hatched and frozen blocks show a lock. A "Frozen through …" note gives the last frozen day, and Recalculate reports how many jobs it held in place.
+- Jobs already in production are never moved, whatever the window says.
+- Code: `WorkCalendarSettings.FreezeUntil`, `FreezeWindow`.
+
+### 5.21 Email reports *(v3.0)*
+
+`EmailReportService` sends three reports over SMTP. Each report:
+- goes to **one address or an IT-managed distribution list**;
+- is sent once per **working day**, at or after its Admin-set hour.
+
+| Report | Contents | Default time |
+|---|---|---|
+| **Next day's jobs** | Everything planned for the next working day, by station in running order: start time, job, client, suburb, product, Eq that day, status, saw-file state | 15:00 |
+| **Jobs needing final design** ("ready for production", option a) | Jobs still at **quote** stage that are due within `EmailReadyForProductionDays` (default 10) or already overdue. Quote jobs aren't scheduled, so "scheduled within N days" uses the due date | 07:00 |
+| **Daily production values** | What each station made today against its target for the day (capacity overrides included), the total, and the jobs finished today | 17:00 |
+
+**Settings → Email:**
+- the SMTP server, port, SSL, username / password and From address;
+- each report's recipient and send time;
+- **Preview**, which opens the report as it would be sent now;
+- **Send now**;
+- the last-sent time and last error.
+
+**Behaviour:**
+- A blank recipient switches that report off.
+- Every attempt is logged to `MaintenanceLogs` (task `Email{Report}`). After three failures in a day the service stops retrying until the next day; Send now still works.
+- **Test folder** (`EmailPickupDirectory`): when it is set, emails are saved there as `.eml` files and nothing is sent. Use it for local testing.
+
+**Still to decide:** the final layout of each email ("custom form, TBC"). Today each report is a plain HTML table.
+
+### 5.22 Factories and kiosk display *(v3.0)*
+
+- **Settings → Factories:** add, rename, switch off or delete a factory.
+  - Each **station** picks its factory in the station form; the Stations table shows it.
+  - Deleting a factory leaves its stations in place, unassigned.
+- **Scheduling ignores factories.** A job goes to any active station that makes its product, in any factory (decided v3.0).
+- **Kiosk page:**
+  - `/kiosk` lists the factories.
+  - `/kiosk/{id}` is a full-screen, self-refreshing (60 s) view of one factory's stations. For each station it shows: Eq made today against the target (with a progress bar), the job and member being made now and the next member, and the rest of today's queue.
+  - Any signed-in user can open it from **Kiosk display** in the sidebar.
+  - A **Kiosk** account goes straight there and can't leave it.
+- **Not done yet:**
+  - **Staying signed in for days.** A kiosk is signed out after the 8-hour token, like everyone else. That belongs with the Office 365 work (§9.2).
+  - Keeping the screen awake.
+  - A factory filter on the Calendar and Dashboard.
 
 ---
 
@@ -1093,8 +1185,16 @@ Anything an administrator may need to change is a row in the `Settings` table, e
 | `NightlyMaintenanceRunHour` | Nightly run hour | `1` |
 | `ThemePrimaryColor` / `ThemeSecondaryColor` | Brand colours (§5.17) | `#0a5e73` / `#fdb913` |
 | `ThemeMode` | Site default mode | `system` |
+| `FreezeWindowDays` | Lock-out: today + this many working days are frozen (§5.20); 0 = off | `3` |
+| `SmtpHost` / `SmtpPort` / `SmtpUseSsl` | Mail relay (§5.21) | empty / `25` / `false` |
+| `SmtpUsername` / `SmtpPassword` | Relay sign-in; blank = none. The password is never returned to the browser | empty |
+| `SmtpFromAddress` | Mailbox the reports come from | empty |
+| `EmailPickupDirectory` | Testing: save emails as `.eml` here instead of sending | empty |
+| `EmailNextDayJobsTo` / `…Hour` | Next day's jobs: recipient (blank = off) and hour | empty / `15` |
+| `EmailReadyForProductionTo` / `…Hour` / `…Days` | Jobs needing final design: recipient, hour, look-ahead days | empty / `7` / `10` |
+| `EmailDailyProductionTo` / `…Hour` | Daily production values: recipient and hour | empty / `17` |
 
-Background services stay idle while their path settings are empty.
+Background services stay idle while their path settings are empty. Known keys are validated when saved (ranges, shift start before end, working days, colours, email addresses); a refused value shows its reason on the row. The mail settings are edited on Settings → Email rather than in the System Settings table.
 
 ### 6.3 Seed data required before go-live
 
@@ -1202,6 +1302,21 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 - Calendar: Day / Week / Month, drag-and-drop, Recalculate, live now line.
 - Login: Enter to submit, press-and-hold password reveal, session survives refresh, case-sensitive usernames.
 
+**v3.0 (to 26 Oct 2026):**
+- Products and pool folders, and the MPS overnight move (§5.16).
+- Drag-and-drop for Admin and Supervisor.
+- Theme toggle beside the user name; change password removed.
+- Freeze window (§5.20).
+- Saw-file staging (§5.11).
+- Email reports (§5.21).
+- Factories and kiosk (§5.22).
+- A functional audit with fixes across the file services, the scheduler, settings, accounts and every screen. Highlights:
+  - settings are validated, so a bad value can't stall a service;
+  - the scheduler handles stale pins, jobs with nowhere to run and concurrent runs;
+  - account changes apply immediately;
+  - every button reports why it failed;
+  - the job edit form covers every hand-maintained field.
+
 ### 9.2 Planned — Office 365 sign-in and new roles *(decided; do at the end, before deployment)*
 
 - Replace the username/password login with **Microsoft Entra ID (Office 365) single sign-on**.
@@ -1219,12 +1334,18 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 - Becomes unnecessary: password change/reset, password policy, the login form improvements.
 - **Ask IT early** for the Entra app registration and an HTTPS address — both depend on other people.
 
-### 9.3 Planned — Factories and kiosk display *(discussed; not started)*
+### 9.3 Factories and kiosk display *(built in v3.0 — see §5.22)*
 
-- **Factories** defined in Admin; each **station** is assigned to a factory. Assigning stations (not product types) handles the same product being made in more than one factory.
-- A full-screen **kiosk page** per factory (e.g. `/kiosk/factory-2`) for a shop-floor TV: no navigation, large text, auto-refresh, now line, keeps the screen awake, stays signed in for days. Can be built before the Office 365 switch.
-- Optional: factory filter on the Calendar and Dashboard.
-- **Open question — waiting on the workflow review:** should a job go to any factory with a matching line (today's behaviour), stay within one factory, or prefer a home factory with overflow?
+- **Built:**
+  - factories in Admin;
+  - stations assigned to factories;
+  - jobs routed to any matching station in any factory (decided);
+  - `/kiosk/{id}` full-screen display;
+  - a local Kiosk role.
+- **Still open:**
+  - a kiosk staying signed in for days (with Office 365, §9.2);
+  - keeping the screen awake;
+  - an optional factory filter on the Calendar and Dashboard.
 
 ### 9.4 Known gaps and issues
 
@@ -1234,18 +1355,21 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 | 2 | Operators / skills not assigned to work (`OperatorAvail` not wired; `OperatorId` always empty; no Operators screen) | Operator availability isn't a scheduling constraint |
 | 3 | No screens for Setup Times or Precedences; precedence only within one station | Database-only configuration |
 | 4 | ATCS sequencing and the TardinessCalc local-search loop are built but not wired | Scheduling is EDD only |
-| 5 | Quote stage doesn't compare the earliest viable production date with the Est. Booked Delivery Date | |
-| 6 | Approve for cutting shows on every `ready` job, not only those whose bundle folder exists | Clicking returns a clear error |
-| 7 | Dashboard station cards show current/next **job**, not current/next **member** | |
-| 8 | Shift start/end times don't shape the working window (the Settings hours do) | Two places that look like they control hours |
+| 5 | Quote stage doesn't compare the earliest viable production date with the Est. Booked Delivery Date | Partly covered by the "Jobs needing final design" email (§5.21) |
+| 6 | ~~Approve for cutting shows on every `ready` job~~ | **Fixed v3.0:** only once saw files exist (§5.11) |
+| 7 | ~~Dashboard cards show current/next job, not member~~ | **Fixed v3.0:** member being made, the next one and members done |
+| 8 | Shift start/end times don't shape the working window (the Settings hours do) | The shift form says so |
 | 9 | PRD reader untested against a real PaperlessJig file | Highest-value validation still outstanding |
 | 10 | Real MPS file names not yet seen — any `.mps` named after the job is accepted | Confirm with a real file |
-| 11 | "Jobs late" tile means behind schedule; the sidebar "N late" means past due | Same word, two meanings |
-| 12 | Calendar blocks show LATE but no at-risk badge; Calendar data doesn't auto-refresh | |
-| 13 | No admin view of archived records | |
+| 11 | ~~"Jobs late" tile vs sidebar "N late"~~ | **Fixed v3.0:** tile renamed "Behind schedule"; "late" means past due everywhere |
+| 12 | ~~No at-risk badge on the Calendar; no auto-refresh~~ | **Fixed v3.0:** AT RISK badge; Dashboard, Calendar and the late count refresh themselves |
+| 13 | ~~No admin view of archived records~~ | **Fixed v3.0:** Jobs → Show archived (Admin, view only) |
 | 14 | Manual job creation is API-only (no UI button) | By design for now |
-| 15 | "Jobs Completed vs Late" report counts currently-overdue jobs, not jobs that finished after their due date | Misses late completions once they're done |
+| 15 | ~~Completed vs Late counted currently-overdue jobs~~ | **Fixed v3.0:** counts jobs that finished after their due date, by finish day, archived included |
 | 16 | Setup times only apply between same-type jobs, because each station runs one component type | Changeover modelling is effectively unused |
+| 17 | Kiosk sessions end after 8 hours like any other | Belongs with the Office 365 work (§9.2) |
+| 18 | Email layout is a plain table; the "custom form" is TBC | §5.21 |
+| 19 | "Ready to cut" is still a manual Approve; the automatic logic is TBC | §5.11 |
 
 ### 9.5 Deployment checklist (not started)
 
@@ -1275,7 +1399,7 @@ Both are also defined in `.claude/launch.json`. In Development the API applies m
 
 ### 10.2 Tests
 
-- `dotnet test` from the repo root: **147 tests** — engine and constraint unit tests, background-service tests (including the real SCH files), and the integration scenarios in §7.
+- `dotnet test` from the repo root: **199 tests** — engine and constraint unit tests, background-service tests (including the real SCH files), and the integration scenarios in §7.
 - Integration tests use the separate `ProductionSchedulerIntegration` database with background services disabled and driven explicitly.
 - Front-end changes are additionally checked in a real browser (Playwright scripts) against the running dev servers before being called done.
-- Working practice: the project owner commits; fixes are verified live and confirmed before each commit.
+- Working practice: fixes are verified live before each commit. Claude commits each section (never pushes); the project owner reviews.
