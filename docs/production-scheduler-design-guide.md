@@ -336,7 +336,8 @@ Stations (
   Id              INT           IDENTITY PRIMARY KEY,
   Name            NVARCHAR(100) NOT NULL,
   ComponentType   NVARCHAR(100) NOT NULL,
-  UncPath         NVARCHAR(500) NULL,       -- station's DataIn folder: PRD files read here, MPS files delivered here
+  PrdPath         NVARCHAR(500) NULL,       -- "DataOut": PaperlessJig writes YYYYMMDD.prd here (PRD reader)
+  MpsPath         NVARCHAR(500) NULL,       -- "DataIn": MPS files moved here from the product pool before production
   IsActive        BIT           NOT NULL,
   DisplayOrder    INT           NOT NULL,   -- Calendar column order
   DailyEqATarget  DECIMAL(10,4) NULL,       -- daily capacity; NULL = unlimited
@@ -888,9 +889,9 @@ Written by **PaperlessJig** at each station, one file per station per day. The s
 
 > **Not yet verified against a real PRD file.** The reader is built from the v1.0 description and tested with synthetic files. A real file from a station is the next-best input to validate it, the same way real SCH files corrected the SCH parser.
 
-**File naming:** `YYYYMMDD.prd` in the station's `UncPath`. **Delimiter:** comma.
+**File naming:** `YYYYMMDD.prd` in the station's PRD folder (`PrdPath`, "DataOut"). **Delimiter:** comma.
 
-**Polling:** every `PrdPollIntervalMinutes` (default 5) for each active station with a `UncPath`. Reads only lines after `PrdReadState.LastLineRead` for today's file; the file is opened with shared read/write since PaperlessJig keeps writing to it. "Today" and timestamps use the site's local time (`Site:TimeZoneId`, or the server's zone if blank).
+**Polling:** every `PrdPollIntervalMinutes` (default 5) for each active station with a PRD folder set. Reads only lines after `PrdReadState.LastLineRead` for today's file; the file is opened with shared read/write since PaperlessJig keeps writing to it. "Today" and timestamps use the site's local time (`Site:TimeZoneId`, or the server's zone if blank).
 
 **Events:** only `Trusses Made` (JobRef, MemberID, timestamp, qty, f2, f3, EqA) is processed; other event types are ignored. Timestamps are accepted in several day-first formats, or as a bare time combined with the file's date.
 
@@ -978,7 +979,7 @@ RawFilesPath (drop) ─► RawFilesPath\_bundling\{JobRef} ─(every member has 
 
 | Task | Selects | Action |
 |---|---|---|
-| 1. MPS → DataIn | Unstarted jobs with a station, starting within `MpsPreMoveDaysBeforeProduction` days (default 1), whose MPS is still in the pool | **Moves** the MPS from the product pool to the station's DataIn (`UncPath`). A missing MPS, or a station with no DataIn set, is logged as an error |
+| 1. MPS → DataIn | Unstarted jobs with a station, starting within `MpsPreMoveDaysBeforeProduction` days (default 1), whose MPS is still in the pool | **Moves** the MPS from the product pool to the station's MPS folder (`MpsPath`, "DataIn"). A missing MPS, or a station with no DataIn set, is logged as an error |
 | 2. Saw folders cleanup | DONE folders in `SawFilesForCuttingPath` | Moves them to `SawFilesDoneBasePath\YYYY\YYYY-MM\` (archival only; the status change already happened) |
 | 5. Retention | Older than `ScheduleRetentionMonths` (default 6): **completed** jobs by last update, schedule items by generation time, batchcut events by detection time, logs by run time | Sets `IsArchived`. Never deletes |
 
@@ -1202,7 +1203,7 @@ Entered through the Admin screens unless noted:
 
 | Data | Notes |
 |---|---|
-| Stations | Every line, with component type, PRD folder (`UncPath`), archive folder, daily EqA target, display order |
+| Stations | Every line, with component type, PRD folder (DataOut), MPS folder (DataIn), archive folder, daily EqA target, display order |
 | Job types | One per component type, with confirmed minutes per EqA (drives scheduling durations) |
 | Shifts and breaks | At least one active shift with real break windows |
 | Settings | Working hours, days, all four saw-file paths, at-risk buffer, creep threshold |

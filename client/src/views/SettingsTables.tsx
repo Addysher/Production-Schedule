@@ -50,7 +50,8 @@ export function StationsSection() {
             <th>Name</th>
             <th>Product</th>
             <th>Factory</th>
-            <th>PRD folder</th>
+            <th>PRD folder (DataOut)</th>
+            <th>MPS folder (DataIn)</th>
             <th>Archive folder</th>
             <th>Daily EqA</th>
             <th>Active</th>
@@ -63,7 +64,8 @@ export function StationsSection() {
               <td>{s.name}</td>
               <td>{s.componentType}</td>
               <td>{factories.find((f) => f.id === s.factoryId)?.name ?? '—'}</td>
-              <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.uncPath ?? '—'}</td>
+              <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.prdPath ?? '—'}</td>
+              <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.mpsPath ?? '—'}</td>
               <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.archivePath ?? '—'}</td>
               <td>{s.dailyEqATarget ?? '—'}</td>
               <td>{s.isActive ? 'Yes' : 'No'}</td>
@@ -76,7 +78,7 @@ export function StationsSection() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
+              <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                 No stations yet
               </td>
             </tr>

@@ -21,7 +21,7 @@ public class SiteTimeAndInputHardeningTests
 
     private async Task<int> AddCutJobAsync(string jobRef, string comp, string dataIn, params string[] members)
     {
-        var stationId = await _f.AddStationAsync($"Station {jobRef}", comp, dataIn);
+        var stationId = await _f.AddStationAsync($"Station {jobRef}", comp, prdPath: dataIn);
         await _f.WithDbAsync(async db =>
         {
             db.Jobs.Add(new Job

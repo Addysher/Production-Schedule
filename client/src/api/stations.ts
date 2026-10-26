@@ -4,7 +4,8 @@ import type { StationDto, CapacityOverrideDto } from '../types/api'
 export interface UpsertStationRequest {
   name: string
   componentType: string
-  uncPath: string | null
+  prdPath: string | null
+  mpsPath: string | null
   isActive?: boolean
   displayOrder: number
   dailyEqATarget: number | null

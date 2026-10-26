@@ -31,7 +31,7 @@ public class ScenarioC_CreepDetectionTests
     {
         const string comp = "ScnC";
         var dataIn = _f.NewDir("cdatain");
-        var stationId = await _f.AddStationAsync("ScnC Station", comp, dataIn);
+        var stationId = await _f.AddStationAsync("ScnC Station", comp, prdPath: dataIn);
         var now = SiteClock.Now;
         var today = DateOnly.FromDateTime(now);
 

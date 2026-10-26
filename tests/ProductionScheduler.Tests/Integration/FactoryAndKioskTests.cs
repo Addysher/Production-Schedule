@@ -32,7 +32,7 @@ public class FactoryAndKioskTests
 
         var created = await admin.PostAsJsonAsync("/api/stations", new
         {
-            name = "Fac Line", componentType = "FacProduct", uncPath = (string?)null, displayOrder = 1, dailyEqATarget = 50, archivePath = (string?)null, factoryId,
+            name = "Fac Line", componentType = "FacProduct", prdPath = (string?)null, mpsPath = (string?)null, displayOrder = 1, dailyEqATarget = 50, archivePath = (string?)null, factoryId,
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var stationId = await IdOf(created);
@@ -56,7 +56,7 @@ public class FactoryAndKioskTests
 
         var response = await admin.PostAsJsonAsync("/api/stations", new
         {
-            name = "Fac Ghost", componentType = "FacProduct", uncPath = (string?)null, displayOrder = 1, dailyEqATarget = (decimal?)null, archivePath = (string?)null, factoryId = 999999,
+            name = "Fac Ghost", componentType = "FacProduct", prdPath = (string?)null, mpsPath = (string?)null, displayOrder = 1, dailyEqATarget = (decimal?)null, archivePath = (string?)null, factoryId = 999999,
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

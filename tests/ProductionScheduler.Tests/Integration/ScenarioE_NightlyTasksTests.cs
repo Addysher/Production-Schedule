@@ -34,7 +34,7 @@ public class ScenarioE_NightlyTasksTests
         await _f.SetSettingsAsync(
             ("SawFilesForCuttingPath", forCutting), ("SawFilesDoneBasePath", doneBase),
             ("MpsPreMoveDaysBeforeProduction", "1"), ("ScheduleRetentionMonths", "6"));
-        var stationId = await _f.AddStationAsync($"ScnE {tag}", "ScnE", dataIn, _f.NewDir($"e{tag}archive"));
+        var stationId = await _f.AddStationAsync($"ScnE {tag}", "ScnE", mpsPath: dataIn, archivePath: _f.NewDir($"e{tag}archive"));
         return new World(pool, dataIn, forCutting, doneBase, stationId);
     }
 

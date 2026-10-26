@@ -29,7 +29,7 @@ public class ProductsApiTests
     {
         var admin = await _f.ClientAsync();
         var id = await CreateAsync(admin, "PrdOld");
-        var station = await admin.PostAsJsonAsync("/api/stations", new { name = "Prd Line", componentType = "PrdOld", uncPath = (string?)null, displayOrder = 1, dailyEqATarget = (decimal?)null, archivePath = (string?)null });
+        var station = await admin.PostAsJsonAsync("/api/stations", new { name = "Prd Line", componentType = "PrdOld", prdPath = (string?)null, mpsPath = (string?)null, displayOrder = 1, dailyEqATarget = (decimal?)null, archivePath = (string?)null });
         Assert.Equal(HttpStatusCode.Created, station.StatusCode);
         await _f.WithDbAsync(async db =>
         {
@@ -48,7 +48,7 @@ public class ProductsApiTests
     public async Task AStation_CannotNameAProductThatDoesNotExist()
     {
         var admin = await _f.ClientAsync();
-        var response = await admin.PostAsJsonAsync("/api/stations", new { name = "Typo Line", componentType = "RoofTruses", uncPath = (string?)null, displayOrder = 1, dailyEqATarget = (decimal?)null, archivePath = (string?)null });
+        var response = await admin.PostAsJsonAsync("/api/stations", new { name = "Typo Line", componentType = "RoofTruses", prdPath = (string?)null, mpsPath = (string?)null, displayOrder = 1, dailyEqATarget = (decimal?)null, archivePath = (string?)null });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }

@@ -10,7 +10,8 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
   const [form, setForm] = useState({
     name: station?.name ?? '',
     componentType: station?.componentType ?? '',
-    uncPath: station?.uncPath ?? '',
+    prdPath: station?.prdPath ?? '',
+    mpsPath: station?.mpsPath ?? '',
     archivePath: station?.archivePath ?? '',
     dailyEqATarget: station?.dailyEqATarget?.toString() ?? '',
     displayOrder: station?.displayOrder?.toString() ?? '0',
@@ -49,7 +50,8 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
     const body = {
       name: form.name.trim(),
       componentType: form.componentType.trim(),
-      uncPath: form.uncPath.trim() || null,
+      prdPath: form.prdPath.trim() || null,
+      mpsPath: form.mpsPath.trim() || null,
       archivePath: form.archivePath.trim() || null,
       dailyEqATarget: form.dailyEqATarget === '' ? null : Number(form.dailyEqATarget),
       displayOrder: Number(form.displayOrder) || 0,
@@ -115,12 +117,17 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
           <ProductSelect value={form.componentType} onChange={(componentType) => set({ componentType })} />
         </Field>
         <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="PRD folder (UNC path)" hint="Where PaperlessJig writes this station's daily .prd files; also where MPS files are staged">
-            <input style={{ width: '100%' }} value={form.uncPath} onChange={(e) => set({ uncPath: e.target.value })} placeholder="\\server\share\Station\DataIn" />
+          <Field label="PRD folder (DataOut)" hint="Where PaperlessJig writes this station's daily .prd files; production progress is read from here">
+            <input style={{ width: '100%' }} value={form.prdPath} onChange={(e) => set({ prdPath: e.target.value })} placeholder="\\server\share\Station\DataOut" />
           </Field>
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="Archive folder" hint="Finished jobs' MPS files are moved here overnight (nightly Task 4)">
+          <Field label="MPS folder (DataIn)" hint="MPS files are moved here from the product pool before production. Blank = MPS files aren't sent. Files already here stay put if you change it">
+            <input style={{ width: '100%' }} value={form.mpsPath} onChange={(e) => set({ mpsPath: e.target.value })} placeholder="\\server\share\Station\DataIn" />
+          </Field>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Archive folder" hint="MPS files of completed jobs (at the end of the shift) and of deleted jobs are moved here">
             <input style={{ width: '100%' }} value={form.archivePath} onChange={(e) => set({ archivePath: e.target.value })} placeholder="\\server\share\Station\Archive" />
           </Field>
         </div>

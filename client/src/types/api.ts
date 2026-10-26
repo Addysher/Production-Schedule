@@ -11,7 +11,8 @@ export interface StationDto {
   id: number
   name: string
   componentType: string
-  uncPath: string | null
+  prdPath: string | null // DataOut: PaperlessJig's .prd files
+  mpsPath: string | null // DataIn: MPS files from the pool
   isActive: boolean
   displayOrder: number
   dailyEqATarget: number | null

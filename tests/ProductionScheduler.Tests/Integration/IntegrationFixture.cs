@@ -125,12 +125,13 @@ public sealed class IntegrationFixture : IAsyncLifetime
         return path;
     }
 
-    public Task<int> AddStationAsync(string name, string componentType, string? uncPath = null, string? archivePath = null, decimal? dailyEqATarget = null) =>
+    // prdPath = the station's DataOut (PRD files), mpsPath = its DataIn (MPS files), archivePath = its Archive.
+    public Task<int> AddStationAsync(string name, string componentType, string? prdPath = null, string? mpsPath = null, string? archivePath = null, decimal? dailyEqATarget = null) =>
         WithDbAsync(async db =>
         {
             var station = new Station
             {
-                Name = name, ComponentType = componentType, UncPath = uncPath, ArchivePath = archivePath,
+                Name = name, ComponentType = componentType, PrdPath = prdPath, MpsPath = mpsPath, ArchivePath = archivePath,
                 DailyEqATarget = dailyEqATarget, IsActive = true,
             };
             db.Stations.Add(station);

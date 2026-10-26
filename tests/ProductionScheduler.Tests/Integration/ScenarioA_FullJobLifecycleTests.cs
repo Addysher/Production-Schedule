@@ -48,12 +48,13 @@ public class ScenarioA_FullJobLifecycleTests
         var pool = _f.NewDir("pool");
         var schArchive = _f.NewDir("scharchive");
         var dataIn = _f.NewDir("datain");
+        var dataOut = _f.NewDir("dataout");
         var archive = _f.NewDir("archive");
 
         await _f.SetSettingsAsync(
             ("RawFilesPath", raw), ("SawFilesDoNotCutPath", doNotCut), ("SawFilesForCuttingPath", forCutting),
             ("SawFilesDoneBasePath", doneBase), ("MpsPreMoveDaysBeforeProduction", "1"), ("ScheduleRetentionMonths", "6"));
-        var stationId = await _f.AddStationAsync("ScnA Station", product, dataIn, archive);
+        var stationId = await _f.AddStationAsync("ScnA Station", product, prdPath: dataOut, mpsPath: dataIn, archivePath: archive);
         await _f.WithDbAsync(async db =>
         {
             db.Products.Add(new Product { Name = product, PoolPath = pool, ArchivePath = schArchive, IsActive = true });
@@ -137,7 +138,7 @@ public class ScenarioA_FullJobLifecycleTests
         Assert.Equal("applied", Assert.Single(events).Status);
 
         // 6. PRD: first Trusses Made -> 'in-production'; last one -> 'completed'.
-        var prdFile = Path.Combine(dataIn, $"{SiteClock.Now:yyyyMMdd}.prd");
+        var prdFile = Path.Combine(dataOut, $"{SiteClock.Now:yyyyMMdd}.prd");
         string Stamp(int minutesAgo) => SiteClock.Now.AddMinutes(-minutesAgo).ToString("yyyy-MM-dd HH:mm:ss");
         await File.WriteAllLinesAsync(prdFile, new[]
         {

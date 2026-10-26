@@ -67,7 +67,7 @@ public class PrdReaderService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var stations = await db.Stations.Where(s => s.IsActive && s.UncPath != null).ToListAsync(ct);
+        var stations = await db.Stations.Where(s => s.IsActive && s.PrdPath != null && s.PrdPath != "").ToListAsync(ct);
         var today = DateOnly.FromDateTime(_now());
 
         foreach (var station in stations)
@@ -83,7 +83,7 @@ public class PrdReaderService : BackgroundService
 
     private async Task ReadStationFileAsync(AppDbContext db, Station station, DateOnly today, CancellationToken ct)
     {
-        var filePath = Path.Combine(station.UncPath!, $"{today:yyyyMMdd}.prd");
+        var filePath = Path.Combine(station.PrdPath!, $"{today:yyyyMMdd}.prd");
         if (!File.Exists(filePath))
         {
             return;

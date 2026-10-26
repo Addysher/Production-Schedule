@@ -85,11 +85,11 @@ public static class MpsFiles
         foreach (var job in jobs)
         {
             var station = job.AssignedStation!;
-            if (string.IsNullOrWhiteSpace(station.UncPath))
+            if (string.IsNullOrWhiteSpace(station.MpsPath))
             {
                 if (overnight)
                 {
-                    MaintenanceLogWriter.Add(db, "MpsToDataIn", "error", $"Station '{station.Name}' has no DataIn folder set, so the MPS can't be sent.", job.JobRef);
+                    MaintenanceLogWriter.Add(db, "MpsToDataIn", "error", $"Station '{station.Name}' has no MPS folder (DataIn) set, so the MPS can't be sent.", job.JobRef);
                 }
                 continue;
             }
@@ -105,7 +105,7 @@ public static class MpsFiles
                 continue;
             }
 
-            Move(db, job, file, station.UncPath, "MpsToDataIn", $"Sent to {station.Name} for its {job.EstimatedStartDate:ddd d MMM} start.", () => job.MpsStationId = station.Id);
+            Move(db, job, file, station.MpsPath, "MpsToDataIn", $"Sent to {station.Name} for its {job.EstimatedStartDate:ddd d MMM} start.", () => job.MpsStationId = station.Id);
         }
 
         await db.SaveChangesAsync(ct);
@@ -125,11 +125,11 @@ public static class MpsFiles
 
         foreach (var job in sent)
         {
-            var file = Find(job.MpsStation!.UncPath, job.JobRef);
+            var file = Find(job.MpsStation!.MpsPath, job.JobRef);
 
             // A new MPS in the pool for a job whose MPS was already sent is a revision: it replaces the
             // station's copy (kept aside, not overwritten), so the station never runs the old design.
-            if (Find(job.MpsSourcePath, job.JobRef) is { } revision && !string.IsNullOrWhiteSpace(job.MpsStation.UncPath))
+            if (Find(job.MpsSourcePath, job.JobRef) is { } revision && !string.IsNullOrWhiteSpace(job.MpsStation.MpsPath))
             {
                 try
                 {
@@ -138,14 +138,14 @@ public static class MpsFiles
                         SetAside(file);
                     }
 
-                    Move(db, job, revision, job.MpsStation.UncPath, "MpsToDataIn", $"Revised MPS sent to {job.MpsStation.Name}.", () => { });
+                    Move(db, job, revision, job.MpsStation.MpsPath, "MpsToDataIn", $"Revised MPS sent to {job.MpsStation.Name}.", () => { });
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     MaintenanceLogWriter.Add(db, "MpsToDataIn", "error", $"Couldn't replace the MPS at {job.MpsStation.Name} with the revised one: {ex.Message}", job.JobRef, revision);
                 }
 
-                file = Find(job.MpsStation.UncPath, job.JobRef);
+                file = Find(job.MpsStation.MpsPath, job.JobRef);
             }
 
             if (file is null)
@@ -159,11 +159,11 @@ public static class MpsFiles
                 Move(db, job, file, job.MpsSourcePath, "MpsReturn",
                     $"Rescheduled out of range — returned from {job.MpsStation.Name} to the pool.", () => job.MpsStationId = null);
             }
-            else if (inRange && job.AssignedStationId != job.MpsStationId && !string.IsNullOrWhiteSpace(job.AssignedStation!.UncPath))
+            else if (inRange && job.AssignedStationId != job.MpsStationId && !string.IsNullOrWhiteSpace(job.AssignedStation!.MpsPath))
             {
                 var from = job.MpsStation.Name;
                 var to = job.AssignedStation;
-                Move(db, job, file, to.UncPath!, "MpsToDataIn", $"Rescheduled — moved from {from} to {to.Name}.", () => job.MpsStationId = to.Id);
+                Move(db, job, file, to.MpsPath!, "MpsToDataIn", $"Rescheduled — moved from {from} to {to.Name}.", () => job.MpsStationId = to.Id);
             }
         }
 
@@ -186,10 +186,10 @@ public static class MpsFiles
 
         foreach (var job in done.Where(j => !string.IsNullOrWhiteSpace(j.MpsStation!.ArchivePath)))
         {
-            var file = Find(job.MpsStation!.UncPath, job.JobRef);
+            var file = Find(job.MpsStation!.MpsPath, job.JobRef);
             if (file is null)
             {
-                MaintenanceLogWriter.Add(db, "MpsArchive", "skipped", "MPS no longer in DataIn (moved by hand?).", job.JobRef, job.MpsStation.UncPath);
+                MaintenanceLogWriter.Add(db, "MpsArchive", "skipped", "MPS no longer in DataIn (moved by hand?).", job.JobRef, job.MpsStation.MpsPath);
                 job.MpsArchivedAt = SiteClock.Now;
                 continue;
             }
@@ -210,7 +210,7 @@ public static class MpsFiles
         string? from, to;
         if (job.MpsStationId is int stationId && await db.Stations.FindAsync([stationId], ct) is { } station)
         {
-            (from, to) = (station.UncPath, station.ArchivePath);
+            (from, to) = (station.MpsPath, station.ArchivePath);
         }
         else
         {

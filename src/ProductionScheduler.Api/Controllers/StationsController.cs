@@ -19,8 +19,10 @@ public class StationsController : ControllerBase
         _db = db;
     }
 
+    private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
     private static StationDto ToDto(Station s) =>
-        new(s.Id, s.Name, s.ComponentType, s.UncPath, s.IsActive, s.DisplayOrder, s.DailyEqATarget, s.ArchivePath, s.FactoryId);
+        new(s.Id, s.Name, s.ComponentType, s.PrdPath, s.MpsPath, s.IsActive, s.DisplayOrder, s.DailyEqATarget, s.ArchivePath, s.FactoryId);
 
     // Read access is open to any authenticated user — the calendar and dashboard (Viewer-visible)
     // render station columns/cards, even though station management itself is Admin-only.
@@ -56,10 +58,11 @@ public class StationsController : ControllerBase
         {
             Name = request.Name,
             ComponentType = request.ComponentType,
-            UncPath = request.UncPath,
+            PrdPath = Blank(request.PrdPath),
+            MpsPath = Blank(request.MpsPath),
             DisplayOrder = request.DisplayOrder,
             DailyEqATarget = request.DailyEqATarget,
-            ArchivePath = request.ArchivePath,
+            ArchivePath = Blank(request.ArchivePath),
             FactoryId = request.FactoryId,
             IsActive = true
         };
@@ -90,11 +93,12 @@ public class StationsController : ControllerBase
 
         station.Name = request.Name;
         station.ComponentType = request.ComponentType;
-        station.UncPath = request.UncPath;
+        station.PrdPath = Blank(request.PrdPath);
+        station.MpsPath = Blank(request.MpsPath);
         station.IsActive = request.IsActive;
         station.DisplayOrder = request.DisplayOrder;
         station.DailyEqATarget = request.DailyEqATarget;
-        station.ArchivePath = request.ArchivePath;
+        station.ArchivePath = Blank(request.ArchivePath);
         station.FactoryId = request.FactoryId;
         await _db.SaveChangesAsync();
         return ToDto(station);

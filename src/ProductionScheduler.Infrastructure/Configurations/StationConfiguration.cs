@@ -12,7 +12,8 @@ public class StationConfiguration : IEntityTypeConfiguration<Station>
         b.HasKey(x => x.Id);
         b.Property(x => x.Name).HasMaxLength(100).IsRequired();
         b.Property(x => x.ComponentType).HasMaxLength(100).IsRequired();
-        b.Property(x => x.UncPath).HasMaxLength(500);
+        b.Property(x => x.PrdPath).HasMaxLength(500);
+        b.Property(x => x.MpsPath).HasMaxLength(500);
         b.Property(x => x.ArchivePath).HasMaxLength(500);
         b.Property(x => x.DailyEqATarget).HasPrecision(10, 4);
 

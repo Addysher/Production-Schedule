@@ -68,7 +68,7 @@ public class NightlyMaintenanceServiceTests : IDisposable
 
     private async Task<Station> AddStationAsync(string name, string dataIn, string? archive = null)
     {
-        var station = new Station { Name = name, ComponentType = "WallFrames", UncPath = dataIn, ArchivePath = archive, IsActive = true };
+        var station = new Station { Name = name, ComponentType = "WallFrames", MpsPath = dataIn, ArchivePath = archive, IsActive = true };
         _db.Stations.Add(station);
         await _db.SaveChangesAsync();
         return station;
