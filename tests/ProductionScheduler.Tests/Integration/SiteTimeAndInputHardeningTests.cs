@@ -177,6 +177,32 @@ public class SiteTimeAndInputHardeningTests
     }
 
     [Fact]
+    public async Task SchImport_RevisedFinalDesign_DoesNotKnockAnApprovedJobBackToReady()
+    {
+        var inbox = await NewInboxAsync();
+        string[] Lines(string designStatus) => new[]
+        {
+            ScenarioA_FullJobLifecycleTests.ScheduleJobLine("HRD4", "ScnHard", designStatus, "02/09/2026"),
+            ScenarioA_FullJobLifecycleTests.ScheduleEntryLine("HRD4", "ScnHard", "E17", 60m),
+        };
+
+        await File.WriteAllLinesAsync(Path.Combine(inbox, "HRD4__.sch"), Lines("finaldesign"));
+        await _f.PollSchImportAsync();
+        await _f.WithDbAsync(async db =>
+        {
+            var job = await db.Jobs.SingleAsync(j => j.JobRef == "HRD4");
+            Assert.Equal("ready", job.Status);
+            job.Status = "approved"; // admin approved it for cutting
+            await db.SaveChangesAsync();
+        });
+
+        await File.WriteAllLinesAsync(Path.Combine(inbox, "HRD4__.sch"), Lines("finaldesign")); // design revised
+        await _f.PollSchImportAsync();
+
+        Assert.Equal("approved", await _f.WithDbAsync(db => db.Jobs.Where(j => j.JobRef == "HRD4").Select(j => j.Status).SingleAsync()));
+    }
+
+    [Fact]
     public async Task SchImport_SuccessIsAlsoLogged_SoTheDashboardShowsIt()
     {
         var inbox = await NewInboxAsync();

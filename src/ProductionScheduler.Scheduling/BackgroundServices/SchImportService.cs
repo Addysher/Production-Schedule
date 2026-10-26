@@ -230,7 +230,13 @@ public class SchImportService : BackgroundService
         existing.SiteAddress = job.SiteAddress;
         existing.SiteSuburb = job.SiteSuburb;
         existing.DesignStatus = job.DesignStatus;
-        existing.Status = "ready";
+        // Only a quote-stage job becomes 'ready'. A revised Final Design for a job that is already
+        // approved, cut, running or done must not knock it back down the workflow — the batchcut
+        // watcher and PRD reader own those later transitions.
+        if (existing.Status == "scheduled")
+        {
+            existing.Status = "ready";
+        }
         existing.SchSourcePath = filePath;
         existing.MpsSourcePath = product.PoolPath;
         existing.TotalEqA = entries.Sum(e => e.EqaValue);
