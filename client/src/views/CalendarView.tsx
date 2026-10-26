@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { scheduleApi } from '../api/schedule'
 import { stationsApi } from '../api/stations'
 import { jobsApi } from '../api/jobs'
@@ -113,12 +113,20 @@ export function CalendarView() {
     setJobs(jobList)
     setCalendar(calendarSettings)
     setProducedToday(Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])))
+    await loadDayChanges()
   }
 
+  // Day changes around the date being viewed; only the newest request's answer is kept.
+  const anchorRef = useRef(anchorDate)
+  anchorRef.current = anchorDate
+  const dayChangesRequest = useRef(0)
   async function loadDayChanges() {
-    const from = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate() - 45)
-    const to = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate() + 60)
-    setDayChanges(await stationsApi.getDayChanges(localIsoDate(from), localIsoDate(to)))
+    const a = anchorRef.current
+    const from = new Date(a.getFullYear(), a.getMonth(), a.getDate() - 45)
+    const to = new Date(a.getFullYear(), a.getMonth(), a.getDate() + 60)
+    const request = ++dayChangesRequest.current
+    const changes = await stationsApi.getDayChanges(localIsoDate(from), localIsoDate(to))
+    if (request === dayChangesRequest.current) setDayChanges(changes)
   }
 
   useEffect(() => {
@@ -130,7 +138,8 @@ export function CalendarView() {
   const canEditDays = !!user?.canReschedule // Admin and Supervisor
 
   // The chip on a line's day: what's changed, and (for Admin/Supervisor) the way in to change it.
-  function DayChip({ station, date }: { station: StationDto; date: Date }) {
+  // (A render helper rather than a component, so chips aren't remounted on every Calendar render.)
+  function dayChip(station: StationDto, date: Date) {
     const change = dayChangeFor(station.id, date)
     if (!change && !canEditDays) return null
     return (
@@ -173,6 +182,7 @@ export function CalendarView() {
     return startAutoRefresh(load)
   }, [])
 
+  const headerHeight = mode === 'day' ? 62 : 40
   const { workingDays } = calendar
   // The hour grid covers the normal day, widened to any work planned outside it (a line's overtime).
   const segmentHours = items.flatMap((i) =>
@@ -472,7 +482,7 @@ export function CalendarView() {
               <div style={{ display: 'flex', minWidth: 'max-content' }}>
                 {/* Sticky label column */}
                 <div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 2, borderRight: '1px solid var(--border-subtle)' }}>
-                  <div style={{ height: 40, borderBottom: '1px solid var(--border-subtle)' }} />
+                  <div style={{ height: headerHeight, borderBottom: '1px solid var(--border-subtle)' }} />
                   {mode === 'day'
                     ? hours.map((h) => (
                         <div key={h} style={{ height: ROW_HEIGHT, width: 64, fontSize: 11, color: 'var(--text-faint)', padding: '4px 8px', borderBottom: '1px solid var(--divider-faint)' }}>
@@ -494,15 +504,12 @@ export function CalendarView() {
                 {stations.map((station) => (
                   <div key={station.id} style={{ width: 220, borderRight: '1px solid var(--border-subtle)', flexShrink: 0 }}>
                     <div
-                      style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: 'var(--brand-primary)', borderBottom: '1px solid var(--border-subtle)' }}
+                      style={{ height: headerHeight, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 2, padding: '0 4px', fontWeight: 700, fontSize: 13, color: 'var(--brand-primary)', borderBottom: '1px solid var(--border-subtle)' }}
                     >
-                      {station.name}
+                      <div style={{ textAlign: 'center' }}>{station.name}</div>
+                      {/* Day view: the line's day change sits in the header, so every column's hour grid lines up with the labels */}
+                      {mode === 'day' && dayChip(station, anchorDate)}
                     </div>
-                    {mode === 'day' && (
-                      <div style={{ padding: '3px 4px 0' }}>
-                        <DayChip station={station} date={anchorDate} />
-                      </div>
-                    )}
 
                     {mode === 'day' ? (
                       <div
@@ -594,7 +601,7 @@ export function CalendarView() {
                             onDragOver={dropZone(`w-${station.id}-${d.toISOString()}`).onDragOver}
                             onDrop={(e) => onDropOnStationDay(e, station, d)}
                           >
-                            <DayChip station={station} date={d} />
+                            {dayChip(station, d)}
                             {blocksForStationDay(station.id, d).map(({ item, segment }, idx) => (
                               <div key={`${item.id}-${idx}`} draggable={canDrag(item)} onDragStart={(e) => onBlockDragStart(e, item)} onDragEnd={() => setDropTarget(null)} style={{ cursor: canDrag(item) ? 'grab' : undefined }}>
                                 <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} isAtRisk={isAtRiskFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
@@ -705,7 +712,6 @@ export function CalendarView() {
           onClose={() => setEditingDay(null)}
           onSaved={() => {
             setEditingDay(null)
-            loadDayChanges().catch(() => {})
             reloadAfterChange()
           }}
         />

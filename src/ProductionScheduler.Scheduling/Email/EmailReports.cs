@@ -89,7 +89,7 @@ public static class EmailReports
 
         var jobs = await db.Jobs.AsNoTracking()
             .Where(j => !j.IsArchived && j.DesignStatus == "Quote")
-            .Select(j => new { j.JobRef, j.ClientName, j.SiteSuburb, j.ComponentType, j.TotalEqA, Due = j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate })
+            .Select(j => new { j.JobRef, j.ClientName, j.SiteSuburb, j.ComponentType, j.TotalEqA, Due = j.BookedDeliveryDate ?? j.ExpectedDeliveryDate ?? j.EstBookedDeliveryDate })
             .Where(j => j.Due != null && j.Due <= horizon)
             .OrderBy(j => j.Due)
             .ToListAsync(ct);

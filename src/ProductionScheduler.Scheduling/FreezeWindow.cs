@@ -22,7 +22,9 @@ public static class FreezeWindow
         var items = await db.ScheduleItems
             .Include(si => si.Segments)
             // Only called-up (booked) work is frozen: a TBA job can't be made yet, so it stays movable (v3.0).
-            .Where(si => !si.IsArchived && si.ActualStart == null && !si.Job.IsArchived && NotStarted.Contains(si.Job.Status)
+            // A booked quote ("scheduled" until its final design) holds its slot too.
+            .Where(si => !si.IsArchived && si.ActualStart == null && !si.Job.IsArchived
+                && (NotStarted.Contains(si.Job.Status) || si.Job.Status == "scheduled")
                 && si.Job.BookedDeliveryDate != null)
             .AsNoTracking()
             .ToListAsync(ct);

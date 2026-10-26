@@ -39,16 +39,20 @@ public class ScheduleController : ControllerBase
     // Dashboard station cards (§7): for each job running now, the member being made and the one after it,
     // in the design's batch/sequence order.
     // Is the floor keeping up? For each active line today: the Eq planned to be made by now (today's plan
-    // segments up to now, part of the current one pro rata) against what the PRD files say was made today.
+    // baseline up to now, part of the current stretch pro rata) against what the PRD files say was made
+    // today. Only work the floor can make counts: booked final designs, not pencilled jobs or quotes.
     [HttpGet("line-progress")]
     public async Task<ActionResult<List<LineProgressDto>>> LineProgress()
     {
         var now = Domain.SiteClock.Now;
         var today = DateOnly.FromDateTime(now);
         var start = today.ToDateTime(TimeOnly.MinValue);
-        var segments = await _db.ScheduleSegments.AsNoTracking()
-            .Where(s => s.SegmentDate == today && !s.ScheduleItem.IsArchived)
-            .Select(s => new { s.ScheduleItem.StationId, s.SegmentStart, s.SegmentEnd, s.PlannedEqA })
+        var segments = await (
+                from b in _db.PlanBaselineSegments
+                join j in _db.Jobs on b.JobRef equals j.JobRef
+                where b.Day == today && j.BookedDeliveryDate != null && j.DesignStatus == "FinalDesign"
+                select new { b.StationId, SegmentStart = b.Start, SegmentEnd = b.End, b.PlannedEqA })
+            .AsNoTracking()
             .ToListAsync();
         var made = await (
                 from m in _db.JobMembers

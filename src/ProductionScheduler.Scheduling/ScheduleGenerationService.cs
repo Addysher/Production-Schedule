@@ -378,9 +378,63 @@ public class ScheduleGenerationService : IScheduleGenerationService
         }
 
         await _db.SaveChangesAsync(ct);
+        await RecordBaselineAsync(generatedAt, ct);
         var pencilled = routable.Count(j => !IsBooked(j)) + frozenJobs.Values.Count(j => !IsBooked(j));
         return new ScheduleGenerationResult(routable.Count, scheduleItemsWritten, skipped, frozenPlans.Count, pencilled);
     }
+
+    // Keeps today's baseline (what each line was meant to make by any time today, see PlanBaselineSegment):
+    // the part of the day already gone stays as it was planned, the part still ahead follows the new plan.
+    // A line's first plan of the day is taken whole.
+    private async Task RecordBaselineAsync(DateTime generatedAt, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(generatedAt);
+        _db.PlanBaselineSegments.RemoveRange(await _db.PlanBaselineSegments.Where(b => b.Day < today.AddDays(-60)).ToListAsync(ct));
+
+        var kept = await _db.PlanBaselineSegments.Where(b => b.Day == today).ToListAsync(ct);
+        var hasBaseline = kept.Select(b => b.StationId).ToHashSet();
+        foreach (var b in kept)
+        {
+            if (b.Start >= generatedAt)
+            {
+                _db.PlanBaselineSegments.Remove(b);
+            }
+            else if (b.End > generatedAt)
+            {
+                b.PlannedEqA *= Share(b.Start, b.End, b.Start, generatedAt);
+                b.End = generatedAt;
+            }
+        }
+
+        var plan = await _db.ScheduleSegments.AsNoTracking()
+            .Where(s => s.SegmentDate == today && !s.ScheduleItem.IsArchived)
+            .Select(s => new { s.ScheduleItem.StationId, s.ScheduleItem.JobRef, s.SegmentStart, s.SegmentEnd, s.PlannedEqA })
+            .ToListAsync(ct);
+        foreach (var s in plan)
+        {
+            var start = hasBaseline.Contains(s.StationId) && s.SegmentStart < generatedAt ? generatedAt : s.SegmentStart;
+            if (s.SegmentEnd <= start)
+            {
+                continue;
+            }
+
+            _db.PlanBaselineSegments.Add(new PlanBaselineSegment
+            {
+                StationId = s.StationId,
+                JobRef = s.JobRef,
+                Day = today,
+                Start = start,
+                End = s.SegmentEnd,
+                PlannedEqA = s.PlannedEqA * Share(s.SegmentStart, s.SegmentEnd, start, s.SegmentEnd),
+            });
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // The fraction of [start, end) that [from, to) covers.
+    private static decimal Share(DateTime start, DateTime end, DateTime from, DateTime to) =>
+        end <= start ? 0 : (decimal)((to - from).TotalMinutes / (end - start).TotalMinutes);
 
     // The earliest start at or after `notBefore` where the whole job fits on the line without running into
     // work already there, and where it would then finish.

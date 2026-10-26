@@ -477,6 +477,43 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.ToTable("Operators", (string)null);
                 });
 
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.PlanBaselineSegment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("End")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("JobRef")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal>("PlannedEqA")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("decimal(10,4)");
+
+                    b.Property<DateTime>("Start")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("StationId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Day", "StationId")
+                        .HasDatabaseName("IX_PlanBaselineSegments_Day_Station");
+
+                    b.ToTable("PlanBaselineSegments", (string)null);
+                });
+
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.PrdReadState", b =>
                 {
                     b.Property<int>("StationId")

@@ -51,7 +51,7 @@ public class ReportsController : ControllerBase
 
         var finished = await _db.ScheduleItems
             .Where(i => i.ActualEnd != null && i.ActualEnd >= rangeStart && i.ActualEnd < rangeEnd && i.Job.Status == "completed")
-            .Select(i => new { i.JobRef, FinishedAt = i.ActualEnd!.Value, Due = i.Job.BookedDeliveryDate ?? i.Job.EstBookedDeliveryDate ?? i.Job.ExpectedDeliveryDate })
+            .Select(i => new { i.JobRef, FinishedAt = i.ActualEnd!.Value, Due = i.Job.BookedDeliveryDate ?? i.Job.ExpectedDeliveryDate ?? i.Job.EstBookedDeliveryDate })
             .ToListAsync();
 
         return finished

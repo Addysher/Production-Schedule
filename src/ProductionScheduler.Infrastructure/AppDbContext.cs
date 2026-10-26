@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<Precedence> Precedences => Set<Precedence>();
     public DbSet<ScheduleItem> ScheduleItems => Set<ScheduleItem>();
     public DbSet<ScheduleSegment> ScheduleSegments => Set<ScheduleSegment>();
+    public DbSet<PlanBaselineSegment> PlanBaselineSegments => Set<PlanBaselineSegment>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<PrdReadState> PrdReadStates => Set<PrdReadState>();
     public DbSet<BatchcutWatchPath> BatchcutWatchPaths => Set<BatchcutWatchPath>();

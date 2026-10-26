@@ -214,6 +214,50 @@ public class SchedulerRulesV3Tests
     }
 
     [Fact]
+    public async Task PlannedByNow_KeepsMissedWork_AndLeavesOutPencilledJobs()
+    {
+        var line = await _f.AddStationAsync("V3 Baseline Line", "V3Base", eqaPerHour: 10);
+        await AddJobsAsync(
+            NewJob("V3-BASE-MISSED", "V3Base", 20, SiteClock.Today.AddDays(5)),
+            NewJob("V3-BASE-TBA", "V3Base", 20, booked: null, rough: SiteClock.Today.AddDays(8)));
+        // This morning's plan had both jobs running before now; neither started.
+        await _f.WithDbAsync(async db =>
+        {
+            db.PlanBaselineSegments.AddRange(
+                new PlanBaselineSegment { StationId = line, JobRef = "V3-BASE-MISSED", Day = SiteClock.Today, Start = SiteClock.Now.AddHours(-3), End = SiteClock.Now.AddHours(-2), PlannedEqA = 10 },
+                new PlanBaselineSegment { StationId = line, JobRef = "V3-BASE-TBA", Day = SiteClock.Today, Start = SiteClock.Now.AddHours(-2), End = SiteClock.Now.AddHours(-1), PlannedEqA = 10 });
+            await db.SaveChangesAsync();
+        });
+        var admin = await _f.ClientAsync();
+        await admin.PostAsync("/api/schedule/generate", null); // re-places both jobs from now
+
+        var progress = (await admin.GetFromJsonAsync<JsonElement>("/api/schedule/line-progress")).EnumerateArray().Single(p => p.GetProperty("stationId").GetInt32() == line);
+        Assert.Equal(10m, progress.GetProperty("plannedByNow").GetDecimal()); // the missed booked job still counts; the pencilled one doesn't
+        Assert.True(Start(await ItemAsync(admin, "V3-BASE-MISSED")) >= SiteClock.Now.AddMinutes(-5));
+    }
+
+    [Fact]
+    public async Task ABookedQuote_IsFrozenInsideTheWindow()
+    {
+        await _f.AddStationAsync("V3 Quote Freeze Line", "V3QFreeze");
+        var quote = NewJob("V3-QUOTE-FROZEN", "V3QFreeze", 60, SiteClock.Today.AddDays(2));
+        quote.DesignStatus = "Quote";
+        quote.Status = "scheduled";
+        await AddJobsAsync(quote);
+        var admin = await _f.ClientAsync();
+        await admin.PostAsync("/api/schedule/generate", null);
+        await _f.SetSettingsAsync(("FreezeWindowDays", "3"));
+        try
+        {
+            Assert.True((await ItemAsync(admin, "V3-QUOTE-FROZEN"))!.Value.GetProperty("isFrozen").GetBoolean());
+        }
+        finally
+        {
+            await _f.SetSettingsAsync(("FreezeWindowDays", "0"));
+        }
+    }
+
+    [Fact]
     public async Task ACutJob_GetsNoPriority_ProductionOrderIsByDeliveryDate()
     {
         await _f.AddStationAsync("V3 Cut Line", "V3Cut");
