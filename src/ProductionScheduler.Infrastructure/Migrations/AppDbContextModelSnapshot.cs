@@ -587,6 +587,9 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasPrecision(10, 4)
                         .HasColumnType("decimal(10,4)");
 
+                    b.Property<DateTime?>("FrozenAnchorStart")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("GeneratedAt")
                         .HasColumnType("datetime2");
 

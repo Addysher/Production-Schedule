@@ -70,7 +70,7 @@ public class ScheduleController : ControllerBase
             (int)Math.Floor(calendar.DayStart.TotalHours),
             (int)Math.Ceiling(calendar.DayEnd.TotalHours),
             calendar.WorkingDays.OrderBy(d => d).ToList(),
-            calendar.Breaks.Select(b => new BreakDto(b.Start.ToString(@"hh\:mm"), b.End.ToString(@"hh\:mm"))).ToList(),
+            calendar.Breaks.Select(b => new BreakDto(Clock(b.Start), Clock(b.End))).ToList(), // a break to midnight ends "24:00"
             calendar.FreezeUntil(Domain.SiteClock.Now),
             Clock(calendar.DayStart),
             Clock(calendar.DayEnd));

@@ -85,6 +85,7 @@ public class ShiftCalendarTests
     [InlineData("06:00:00", "14:30:00", "21:00:00", 15, "outside the shift")] // the reported case: a break after the shift
     [InlineData("06:00:00", "14:30:00", "14:15:00", 30, "outside the shift")] // runs past the end
     [InlineData("14:00:00", "06:00:00", "08:00:00", 15, "must end after it starts")]
+    [InlineData("06:00:00", "14:00:00", "06:00:00", 480, "no working time")] // breaks filling the whole shift
     public async Task ABreakOutsideTheShift_OrAShiftEndingBeforeItStarts_IsRefused(string start, string end, string breakStart, int mins, string reason)
     {
         var admin = await _f.ClientAsync();
@@ -102,7 +103,16 @@ public class ShiftCalendarTests
         await _f.WithDbAsync(async db => { db.Jobs.Add(ReadyJob("SHIFT-FRZ", "ShiftFrozen", 1800)); await db.SaveChangesAsync(); }); // 30 h: spans every time of day
         var admin = await _f.ClientAsync();
         await admin.PostAsync("/api/schedule/generate", null);
-        var before = await SegmentsAsync(admin, "SHIFT-FRZ");
+        var originalStart = (await SegmentsAsync(admin, "SHIFT-FRZ")).Min(s => s.Start);
+
+        // A more urgent job arrives on the same line: a normal re-plan would put it first, a freeze doesn't.
+        await _f.WithDbAsync(async db =>
+        {
+            var urgent = ReadyJob("SHIFT-URG", "ShiftFrozen", 60);
+            urgent.EstBookedDeliveryDate = SiteClock.Today.AddDays(1);
+            db.Jobs.Add(urgent);
+            await db.SaveChangesAsync();
+        });
         await _f.SetSettingsAsync(("FreezeWindowDays", "3"));
         int? shiftId = null;
         try
@@ -111,11 +121,17 @@ public class ShiftCalendarTests
             Assert.Equal(HttpStatusCode.Created, created.StatusCode);
             shiftId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-            var after = await SegmentsAsync(admin, "SHIFT-FRZ");
-            AssertNoneOverlap(after, TimeSpan.FromHours(12), TimeSpan.FromHours(13));
-            Assert.True(after.Min(s => s.Start) >= before.Min(s => s.Start));
-            Assert.True(after.Min(s => s.Start) - before.Min(s => s.Start) <= TimeSpan.FromHours(1)); // at most pushed out of a break
+            var frozen = await SegmentsAsync(admin, "SHIFT-FRZ");
+            AssertNoneOverlap(frozen, TimeSpan.FromHours(12), TimeSpan.FromHours(13));
+            var start = frozen.Min(s => s.Start);
+            Assert.True(start >= originalStart && start - originalStart <= TimeSpan.FromHours(1), $"frozen start moved from {originalStart:O} to {start:O}"); // at most out of the break
+            Assert.True((await SegmentsAsync(admin, "SHIFT-URG")).Min(s => s.Start) >= frozen.Max(s => s.End), "the urgent job jumped the frozen one");
             Assert.Equal(station, await _f.WithDbAsync(db => db.Jobs.Where(j => j.JobRef == "SHIFT-FRZ").Select(j => j.AssignedStationId).SingleAsync()));
+
+            // Taking the break away again puts the frozen job back exactly where it was planned.
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/shifts/{shiftId}")).StatusCode);
+            shiftId = null;
+            Assert.Equal(originalStart, (await SegmentsAsync(admin, "SHIFT-FRZ")).Min(s => s.Start), TimeSpan.FromSeconds(1));
         }
         finally
         {
@@ -156,6 +172,10 @@ public class ShiftCalendarTests
             Assert.NotEmpty(future);
             AssertNoneOverlap(future, TimeSpan.FromHours(12), TimeSpan.FromHours(13));
             Assert.Contains(segments, s => s.Start <= SiteClock.Now.AddMinutes(-59)); // what already happened is kept
+
+            // Re-planning again and again doesn't pile up slivers of the running job on the Calendar.
+            for (var i = 0; i < 3; i++) await admin.PostAsync("/api/schedule/generate", null);
+            Assert.Equal(segments.Count, (await SegmentsAsync(admin, "SHIFT-RUN")).Count);
         }
         finally
         {

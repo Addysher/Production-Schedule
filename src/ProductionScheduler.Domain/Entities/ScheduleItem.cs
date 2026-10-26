@@ -14,6 +14,10 @@ public class ScheduleItem
     // Planned (set by scheduler)
     public DateTime PlannedStart { get; set; }
     public DateTime PlannedEnd { get; set; }
+
+    // Freeze window (§5.20): where a frozen job was planned to start when it was last planned normally. Each
+    // run re-times it from here, so a temporary push (a break added then removed) never sticks.
+    public DateTime? FrozenAnchorStart { get; set; }
     public decimal PlannedEqA { get; set; }
     public int MembersTotal { get; set; }
 

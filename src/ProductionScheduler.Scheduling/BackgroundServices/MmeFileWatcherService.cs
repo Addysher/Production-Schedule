@@ -202,7 +202,8 @@ public class MmeFileWatcherService : BackgroundService
         // must each have their file. A member whose SCH ID is another length (e.g. "P05A" in real floor
         // designs) can't be matched by name, so those are only counted: there must be at least one
         // further file for each of them.
-        var have = files.Select(f => DeriveMemberId(Path.GetFileNameWithoutExtension(f))).ToList();
+        // The same file can sit in staging and the waiting folder at once; it still only covers one member.
+        var have = files.Select(f => DeriveMemberId(Path.GetFileNameWithoutExtension(f))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var haveSet = have.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var named = job.Members.Where(m => m.MemberId.Length == 3).ToList();
         var unnamed = job.Members.Count - named.Count;

@@ -214,10 +214,12 @@ public class ScheduleGenerationService : IScheduleGenerationService
         {
             var stationId = stationItems.Key;
             var freeAt = lineFreeAt[stationId];
-            foreach (var item in stationItems.OrderBy(i => i.PlannedStart))
+            foreach (var item in stationItems.OrderBy(i => i.FrozenAnchorStart ?? i.PlannedStart))
             {
                 var job = frozenJobs[item.JobRef];
-                var start = WorkingCalendar.AdvanceToWorkingWindow(item.PlannedStart > freeAt ? item.PlannedStart : freeAt, workStart, workEnd, workingDays, breaks);
+                // Always re-timed from where it was planned, not from where the last run left it.
+                var anchor = item.FrozenAnchorStart ??= item.PlannedStart;
+                var start = WorkingCalendar.AdvanceToWorkingWindow(anchor > freeAt ? anchor : freeAt, workStart, workEnd, workingDays, breaks);
                 var placed = new List<WorkSegment>();
                 var end = WorkingCalendar.PlaceWork(start, (double)item.PlannedEqA, MinsPerEqa(job),
                     workStart, workEnd, workingDays, _ => null, usedEqaByStation[stationId], breaks, placed);
@@ -435,6 +437,32 @@ public class ScheduleGenerationService : IScheduleGenerationService
         foreach (var s in replacement)
         {
             item.Segments.Add(new ScheduleSegment { SegmentDate = s.Day, SegmentStart = s.Start, SegmentEnd = s.End, PlannedEqA = (decimal)s.Eqa });
+        }
+
+        // Each run cuts a running job's plan at "now"; join the pieces that now touch, so repeated runs
+        // don't leave a stack of slivers on the Calendar.
+        ScheduleSegment? previous = null;
+        foreach (var segment in item.Segments.OrderBy(sg => sg.SegmentStart).ToList())
+        {
+            if (previous is not null && previous.SegmentDate == segment.SegmentDate && previous.SegmentEnd == segment.SegmentStart)
+            {
+                previous.SegmentEnd = segment.SegmentEnd;
+                previous.PlannedEqA += segment.PlannedEqA;
+                item.Segments.Remove(segment);
+                var entry = _db.Entry(segment);
+                if (entry.State == EntityState.Added)
+                {
+                    entry.State = EntityState.Detached; // never saved: just drop it
+                }
+                else if (segment.Id != 0)
+                {
+                    _db.ScheduleSegments.Remove(segment);
+                }
+
+                continue;
+            }
+
+            previous = segment;
         }
     }
 }

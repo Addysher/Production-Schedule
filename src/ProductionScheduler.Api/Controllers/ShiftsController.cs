@@ -62,6 +62,32 @@ public class ShiftsController : ControllerBase
             previousEnd = breakEnd;
         }
 
+        if (request.Breaks.Sum(b => b.BreakDurationMins) >= (end - start).TotalMinutes)
+        {
+            return "The breaks fill the whole shift, so it has no working time.";
+        }
+
+        return null;
+    }
+
+    // Saves, then re-plans in the same transaction: if the new calendar leaves no working time at all
+    // (e.g. breaks from several shifts that together cover the day), the save is undone with the reason
+    // instead of leaving a calendar every later re-plan would fail on.
+    private async Task<string?> SaveAndReplanAsync()
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        await _db.SaveChangesAsync();
+        try
+        {
+            await _scheduleGenerationService.GenerateAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await transaction.RollbackAsync();
+            return ex.Message;
+        }
+
+        await transaction.CommitAsync();
         return null;
     }
 
@@ -100,8 +126,11 @@ public class ShiftsController : ControllerBase
             Breaks = request.Breaks.Select(b => new ShiftBreak { BreakStart = b.BreakStart, BreakDurationMins = b.BreakDurationMins }).ToList()
         };
         _db.Shifts.Add(shift);
-        await _db.SaveChangesAsync();
-        await _scheduleGenerationService.GenerateAsync(); // the working day may have changed
+        if (await SaveAndReplanAsync() is { } noWorkingTime) // the working day may have changed
+        {
+            return BadRequest(noWorkingTime);
+        }
+
         return CreatedAtAction(nameof(GetById), new { id = shift.Id }, ToDto(shift));
     }
 
@@ -127,8 +156,11 @@ public class ShiftsController : ControllerBase
         _db.ShiftBreaks.RemoveRange(shift.Breaks);
         shift.Breaks = request.Breaks.Select(b => new ShiftBreak { BreakStart = b.BreakStart, BreakDurationMins = b.BreakDurationMins }).ToList();
 
-        await _db.SaveChangesAsync();
-        await _scheduleGenerationService.GenerateAsync();
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
         return ToDto(shift);
     }
 
@@ -142,8 +174,11 @@ public class ShiftsController : ControllerBase
         }
 
         shift.IsActive = false;
-        await _db.SaveChangesAsync();
-        await _scheduleGenerationService.GenerateAsync();
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
         return NoContent();
     }
 }
