@@ -40,8 +40,32 @@ public static class MpsFiles
     private static async Task<DateOnly> HorizonAsync(AppDbContext db, CancellationToken ct) =>
         DateOnly.FromDateTime(SiteClock.Now).AddDays(await SettingsReader.GetIntAsync(db, "MpsPreMoveDaysBeforeProduction", 1, ct));
 
-    // Overnight (Nightly Task 1): send every MPS whose job starts within MpsPreMoveDaysBeforeProduction days.
-    public static Task SendDueAsync(AppDbContext db, CancellationToken ct) => SendAsync(db, overnight: true, ct);
+    // Overnight (Nightly Task 1): send every MPS whose job starts within MpsPreMoveDaysBeforeProduction days,
+    // and report finished jobs whose MPS can't be archived because their station has no archive folder.
+    public static async Task SendDueAsync(AppDbContext db, CancellationToken ct)
+    {
+        await SendAsync(db, overnight: true, ct);
+
+        var stuck = await db.Jobs
+            .Where(j => j.Status == "completed" && j.MpsArchivedAt == null && j.MpsStation != null
+                && (j.MpsStation.ArchivePath == null || j.MpsStation.ArchivePath == ""))
+            .Select(j => new { j.JobRef, Station = j.MpsStation!.Name })
+            .ToListAsync(ct);
+        foreach (var s in stuck)
+        {
+            MaintenanceLogWriter.Add(db, "MpsArchive", "error", $"{s.JobRef} is finished but station '{s.Station}' has no archive folder set, so its MPS stays in DataIn.", s.JobRef);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Moves a file that's about to be replaced into a "_superseded" subfolder beside it.
+    private static void SetAside(string file)
+    {
+        var folder = Path.Combine(Path.GetDirectoryName(file)!, "_superseded");
+        Directory.CreateDirectory(folder);
+        File.Move(file, Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(file)}_{SiteClock.Now:yyyyMMddHHmmss}{Path.GetExtension(file)}"), overwrite: true);
+    }
 
     private static async Task SendAsync(AppDbContext db, bool overnight, CancellationToken ct)
     {
@@ -102,6 +126,28 @@ public static class MpsFiles
         foreach (var job in sent)
         {
             var file = Find(job.MpsStation!.UncPath, job.JobRef);
+
+            // A new MPS in the pool for a job whose MPS was already sent is a revision: it replaces the
+            // station's copy (kept aside, not overwritten), so the station never runs the old design.
+            if (Find(job.MpsSourcePath, job.JobRef) is { } revision && !string.IsNullOrWhiteSpace(job.MpsStation.UncPath))
+            {
+                try
+                {
+                    if (file is not null)
+                    {
+                        SetAside(file);
+                    }
+
+                    Move(db, job, revision, job.MpsStation.UncPath, "MpsToDataIn", $"Revised MPS sent to {job.MpsStation.Name}.", () => { });
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    MaintenanceLogWriter.Add(db, "MpsToDataIn", "error", $"Couldn't replace the MPS at {job.MpsStation.Name} with the revised one: {ex.Message}", job.JobRef, revision);
+                }
+
+                file = Find(job.MpsStation.UncPath, job.JobRef);
+            }
+
             if (file is null)
             {
                 continue; // someone already moved it by hand — nothing to follow
@@ -121,21 +167,22 @@ public static class MpsFiles
             }
         }
 
-        if (SiteClock.Now.Hour >= await SettingsReader.GetIntAsync(db, "ShiftEndHour", 18, ct))
-        {
-            await ArchiveCompletedAsync(db, ct);
-        }
+        await ArchiveCompletedAsync(db, SiteClock.Now.Hour >= await SettingsReader.GetIntAsync(db, "ShiftEndHour", 18, ct), ct);
 
         await db.SaveChangesAsync(ct);
     }
 
-    // At the end of the shift a job completed in, its MPS leaves the station's DataIn for the station archive.
-    private static async Task ArchiveCompletedAsync(AppDbContext db, CancellationToken ct)
+    // At the end of the shift a job completed in, its MPS leaves the station's DataIn for the station
+    // archive. A job that finished on an earlier day is archived whatever the time (a shift that runs to
+    // midnight never reaches "after the end of the shift" on the same day).
+    private static async Task ArchiveCompletedAsync(AppDbContext db, bool shiftOver, CancellationToken ct)
     {
-        var done = await db.Jobs
-            .Include(j => j.MpsStation)
-            .Where(j => j.Status == "completed" && j.MpsStationId != null && j.MpsArchivedAt == null)
-            .ToListAsync(ct);
+        var today = SiteClock.Now.Date;
+        var done = (await db.Jobs
+                .Include(j => j.MpsStation)
+                .Where(j => j.Status == "completed" && j.MpsStationId != null && j.MpsArchivedAt == null)
+                .ToListAsync(ct))
+            .Where(j => shiftOver || j.UpdatedAt.Date < today);
 
         foreach (var job in done.Where(j => !string.IsNullOrWhiteSpace(j.MpsStation!.ArchivePath)))
         {

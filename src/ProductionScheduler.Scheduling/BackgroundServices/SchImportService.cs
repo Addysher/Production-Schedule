@@ -68,9 +68,20 @@ public class SchImportService : BackgroundService
                     continue;
                 }
 
-                if (await ProcessFileAsync(db, product, file, ct))
+                try
                 {
-                    anyImported = true;
+                    if (await ProcessFileAsync(db, product, file, ct))
+                    {
+                        anyImported = true;
+                    }
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    // One bad file (a database error, a locked archive folder…) must not stop every other
+                    // file — or the schedule run for files already imported this poll.
+                    _logger.LogError(ex, "SCH file {File} could not be imported.", file);
+                    db.ChangeTracker.Clear();
+                    await QuarantineAsync(db, product, file, ex.Message, ct);
                 }
             }
         }
@@ -144,9 +155,21 @@ public class SchImportService : BackgroundService
         await db.SaveChangesAsync(ct);
 
         // v3.0: the SCH file is read in, then archived (kept) in the product's archive folder.
-        var archivedPath = string.IsNullOrWhiteSpace(product.ArchivePath)
-            ? MoveTo(filePath, Path.Combine(product.PoolPath!, "_processed"))
-            : MoveTo(filePath, product.ArchivePath);
+        string archivedPath;
+        try
+        {
+            archivedPath = string.IsNullOrWhiteSpace(product.ArchivePath)
+                ? MoveTo(filePath, Path.Combine(product.PoolPath!, "_processed"))
+                : MoveTo(filePath, product.ArchivePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // The job is already imported — an unreachable archive folder mustn't undo that or leave the
+            // file to be imported again. Park it in the pool's _processed folder and say so.
+            archivedPath = MoveTo(filePath, Path.Combine(product.PoolPath!, "_processed"));
+            MaintenanceLogWriter.Add(db, "SchImport", "error",
+                $"Couldn't archive to '{product.ArchivePath}' ({ex.Message}) — kept in the pool's _processed folder instead.", job.JobRef, archivedPath);
+        }
         await db.Jobs.Where(j => j.JobRef == job.JobRef)
             .ExecuteUpdateAsync(s => s.SetProperty(j => j.SchSourcePath, archivedPath), ct);
 
@@ -168,6 +191,33 @@ public class SchImportService : BackgroundService
         var errorsPath = MoveTo(filePath, Path.Combine(product.PoolPath!, "_errors"));
         MaintenanceLogWriter.Add(db, "SchImport", "error", reason, jobRef, errorsPath);
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task QuarantineAsync(AppDbContext db, Product product, string filePath, string reason, CancellationToken ct)
+    {
+        string? movedTo = null;
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                movedTo = MoveTo(filePath, Path.Combine(product.PoolPath!, "_errors"));
+            }
+        }
+        catch (IOException)
+        {
+            // still locked — it stays in the pool and is retried next poll
+        }
+
+        try
+        {
+            MaintenanceLogWriter.Add(db, "SchImport", "error", $"Import failed: {reason}", sourcePath: movedTo ?? filePath);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception logEx) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogError(logEx, "Could not record the failed import of {File}.", filePath);
+            db.ChangeTracker.Clear();
+        }
     }
 
     // "RoofTrusses" in the file vs a product named "Roof Trusses" is the same thing.
@@ -265,6 +315,22 @@ public class SchImportService : BackgroundService
                 member.Sequence = entry.Sequence;
                 member.SubSequence = entry.SubSequence;
                 member.Raw2 = entry.Raw2;
+            }
+        }
+
+        // Members the revised design no longer has: an unmade one is dropped (otherwise the job could
+        // never reach 'completed'); one already made is kept, since it physically exists — but noted.
+        var newIds = entries.Select(e => e.MemberId).ToHashSet();
+        foreach (var gone in existingMembers.Where(m => !newIds.Contains(m.MemberId)))
+        {
+            if (gone.Done)
+            {
+                MaintenanceLogWriter.Add(db, "SchImport", "skipped",
+                    $"Member {gone.MemberId} is no longer in the revised design but was already made — kept.", job.JobRef, filePath);
+            }
+            else
+            {
+                db.JobMembers.Remove(gone);
             }
         }
     }

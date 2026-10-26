@@ -72,6 +72,9 @@ public class PrdReaderService : BackgroundService
 
         foreach (var station in stations)
         {
+            // Yesterday's file first: events PaperlessJig wrote after the last poll before midnight
+            // would otherwise never be read, and their jobs could never complete.
+            await ReadStationFileAsync(db, station, today.AddDays(-1), ct);
             await ReadStationFileAsync(db, station, today, ct);
         }
 
@@ -107,15 +110,19 @@ public class PrdReaderService : BackgroundService
         }
 
         var readState = await db.PrdReadStates.FirstOrDefaultAsync(r => r.StationId == station.Id && r.FileDate == today, ct);
+        if (readState is not null && readState.LastLineRead >= lines.Count)
+        {
+            return; // nothing new
+        }
+
+        // One transaction per file read: member updates, job progress and the read position commit
+        // together, so an interruption means the new lines are simply read again next poll rather
+        // than members ending up done while their job's progress was never recorded.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (readState is null)
         {
             readState = new PrdReadState { StationId = station.Id, FileDate = today, LastLineRead = 0, LastProcessedAt = _now() };
             db.PrdReadStates.Add(readState);
-        }
-
-        if (readState.LastLineRead >= lines.Count)
-        {
-            return; // nothing new
         }
 
         var processedEvents = 0;
@@ -148,6 +155,7 @@ public class PrdReaderService : BackgroundService
         readState.LastLineRead = lines.Count;
         readState.LastProcessedAt = _now();
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     // Returns the event name on the line (null for blank lines) so the caller can tally unknown events.
@@ -251,8 +259,17 @@ public class PrdReaderService : BackgroundService
             .OrderByDescending(si => si.GeneratedAt)
             .FirstOrDefaultAsync(ct);
 
-        if (job.Status == "cut")
+        // A member being made means production has started — even if the DONE folder for the cut was
+        // never seen. Left 'ready'/'approved', the scheduler would keep re-planning the job and its
+        // recorded progress would be thrown away with the old plan.
+        if (job.Status is "ready" or "approved" or "cut")
         {
+            if (job.Status != "cut")
+            {
+                MaintenanceLogWriter.Add(db, "PrdRead", "skipped",
+                    $"{jobRef} started production while still '{job.Status}' (no cut was recorded) — moved to in-production.", jobRef);
+            }
+
             job.Status = "in-production";
             if (scheduleItem is not null)
             {

@@ -190,6 +190,44 @@ public class NightlyMaintenanceServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Reconcile_RevisedMpsInThePool_ReplacesTheStationCopy_AndKeepsTheOldOneAside()
+    {
+        var jobRef = "RV-" + Guid.NewGuid().ToString("N")[..8];
+        var pool = NewDir("rv-pool");
+        var dataIn = NewDir("rv-datain");
+        await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
+        var station = await AddStationAsync("S-" + jobRef, dataIn);
+        await File.WriteAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS"), "old design");
+        await File.WriteAllTextAsync(Path.Combine(pool, $"{jobRef}__.MPS"), "revised design");
+        await AddJobAsync(jobRef, pool, station.Id, SiteClock.Now.Date.AddDays(1), mpsStationId: station.Id);
+
+        await MpsFiles.ReconcileAsync(_db, default);
+
+        Assert.Equal("revised design", await File.ReadAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(pool, $"{jobRef}__.MPS")));
+        Assert.Single(Directory.GetFiles(Path.Combine(dataIn, "_superseded"), $"{jobRef}*"));
+    }
+
+    [Fact]
+    public async Task Reconcile_JobFinishedOnAnEarlierDay_IsArchivedEvenMidShift()
+    {
+        var jobRef = "ED-" + Guid.NewGuid().ToString("N")[..8];
+        var dataIn = NewDir("ed-datain");
+        var archive = NewDir("ed-archive");
+        var station = await AddStationAsync("S-" + jobRef, dataIn, archive);
+        await File.WriteAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS"), "mps");
+        var job = await AddJobAsync(jobRef, NewDir("ed-pool"), station.Id, SiteClock.Now.Date.AddDays(-2), status: "completed", mpsStationId: station.Id);
+        job.UpdatedAt = SiteClock.Now.AddDays(-1); // it finished yesterday
+        await _db.SaveChangesAsync();
+
+        await SetSettingAsync("ShiftEndHour", "24"); // a shift that runs to midnight is never "over" on the same day
+        await MpsFiles.ReconcileAsync(_db, default);
+        await SetSettingAsync("ShiftEndHour", "18");
+
+        Assert.True(File.Exists(Path.Combine(archive, $"{jobRef}__.MPS")));
+    }
+
+    [Fact]
     public async Task DeletedJob_MpsArchivedFromTheStation()
     {
         var jobRef = "DL-" + Guid.NewGuid().ToString("N")[..8];

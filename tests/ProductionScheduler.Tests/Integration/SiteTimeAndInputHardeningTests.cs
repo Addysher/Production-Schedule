@@ -37,6 +37,85 @@ public class SiteTimeAndInputHardeningTests
         return stationId;
     }
 
+    [Fact]
+    public async Task PrdReader_FinishesYesterdaysFile_SoLateEveningEventsAreNotLost()
+    {
+        var dataIn = _f.NewDir("yestdatain");
+        await AddCutJobAsync("YST1", "ScnYst", dataIn, "M1");
+        await File.WriteAllLinesAsync(Path.Combine(dataIn, "20310501.prd"), new[]
+        {
+            "Version,1.0.0.7,PaperlessJig,05:00,Station YST1,EqA,Mbrs",
+            "Trusses Made,YST1,M1,2031-05-01 23:58:00,1,0,0,10.00", // written after the last poll before midnight
+        });
+
+        await PrdReaderAt(new DateTime(2031, 5, 2, 0, 10, 0)).PollAsync(default);
+
+        Assert.True(await _f.WithDbAsync(db => db.JobMembers.Where(m => m.JobRef == "YST1" && m.MemberId == "M1").Select(m => m.Done).SingleAsync()));
+        Assert.Equal("completed", await _f.WithDbAsync(db => db.Jobs.Where(j => j.JobRef == "YST1").Select(j => j.Status).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task PrdReader_FirstEventOnAJobWithNoCutRecorded_StillStartsProduction()
+    {
+        var dataIn = _f.NewDir("nocutdatain");
+        await AddCutJobAsync("NOCUT1", "ScnNoCut", dataIn, "M1", "M2");
+        await _f.WithDbAsync(async db => { (await db.Jobs.SingleAsync(j => j.JobRef == "NOCUT1")).Status = "approved"; await db.SaveChangesAsync(); });
+        await File.WriteAllLinesAsync(Path.Combine(dataIn, "20310601.prd"), new[]
+        {
+            "Version,1.0.0.7,PaperlessJig,05:00,Station NOCUT1,EqA,Mbrs",
+            "Trusses Made,NOCUT1,M1,2031-06-01 08:00:00,1,0,0,10.00",
+        });
+
+        await PrdReaderAt(new DateTime(2031, 6, 1, 9, 0, 0)).PollAsync(default);
+
+        var job = await _f.WithDbAsync(db => db.Jobs.AsNoTracking().SingleAsync(j => j.JobRef == "NOCUT1"));
+        Assert.Equal("in-production", job.Status);
+        Assert.Equal(10m, job.CompletedEqA);
+    }
+
+    [Fact]
+    public async Task SchImport_RevisedDesign_DropsUnmadeMembersThatAreGone_ButKeepsMadeOnes()
+    {
+        var inbox = await NewInboxAsync();
+        string[] Lines(params string[] members) =>
+            new[] { ScenarioA_FullJobLifecycleTests.ScheduleJobLine("HRD5", "ScnHard", "finaldesign", "02/09/2026") }
+                .Concat(members.Select(m => ScenarioA_FullJobLifecycleTests.ScheduleEntryLine("HRD5", "ScnHard", m, 10m))).ToArray();
+
+        await File.WriteAllLinesAsync(Path.Combine(inbox, "HRD5__.sch"), Lines("E01", "E02", "E03"));
+        await _f.PollSchImportAsync();
+        await _f.WithDbAsync(async db => { (await db.JobMembers.SingleAsync(m => m.JobRef == "HRD5" && m.MemberId == "E01")).Done = true; await db.SaveChangesAsync(); });
+
+        await File.WriteAllLinesAsync(Path.Combine(inbox, "HRD5__.sch"), Lines("E02")); // E01 (made) and E03 (not made) removed
+        await _f.PollSchImportAsync();
+
+        var ids = await _f.WithDbAsync(db => db.JobMembers.Where(m => m.JobRef == "HRD5").Select(m => m.MemberId).OrderBy(x => x).ToListAsync());
+        Assert.Equal(new[] { "E01", "E02" }, ids);
+    }
+
+    [Fact]
+    public async Task SchImport_AnUnreachableArchiveFolder_DoesNotUndoTheImport()
+    {
+        var pool = _f.NewDir("badarchivepool");
+        await _f.AddStationAsync("BadArchive Line", "ScnBadArch");
+        await _f.WithDbAsync(async db =>
+        {
+            db.Products.Add(new Product { Name = "ScnBadArch", PoolPath = pool, ArchivePath = Path.Combine(pool, "no|such:folder"), IsActive = true });
+            await db.SaveChangesAsync();
+        });
+        await File.WriteAllLinesAsync(Path.Combine(pool, "HRD6__.sch"), new[]
+        {
+            ScenarioA_FullJobLifecycleTests.ScheduleJobLine("HRD6", "ScnBadArch", "finaldesign", "02/09/2026"),
+            ScenarioA_FullJobLifecycleTests.ScheduleEntryLine("HRD6", "ScnBadArch", "E17", 60m),
+        });
+
+        await _f.PollSchImportAsync();
+
+        var job = await _f.WithDbAsync(db => db.Jobs.AsNoTracking().SingleAsync(j => j.JobRef == "HRD6"));
+        Assert.NotNull(job.AssignedStationId); // imported and scheduled
+        Assert.True(File.Exists(Path.Combine(pool, "_processed", "HRD6__.sch")));
+        Assert.Contains(await LogsAsync("SchImport"), l => l.JobRef == "HRD6" && l.Outcome == "error" && l.Message!.Contains("Couldn't archive"));
+    }
+
     private Task<List<MaintenanceLog>> LogsAsync(string taskName) =>
         _f.WithDbAsync(db => db.MaintenanceLogs.AsNoTracking().Where(l => l.TaskName == taskName).ToListAsync());
 
