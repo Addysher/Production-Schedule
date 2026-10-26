@@ -14,6 +14,7 @@ import type {
 } from '../types/api'
 import type { BatchcutEventDto } from '../types/logs'
 import { JobTypesSection, ShiftsSection, StationsSection } from './SettingsTables'
+import { errorText } from '../components/Modal'
 import { applyTheme, readThemeSettings, DEFAULT_PRIMARY_COLOR, DEFAULT_SECONDARY_COLOR, type ThemeMode } from '../theme/applyTheme'
 
 type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'products' | 'batchpaths' | 'batchlog'
@@ -64,41 +65,55 @@ export function SettingsView() {
   )
 }
 
+// Each section's actions go through this: a refusal from the server (e.g. "At least one active Admin
+// is required") is shown under the table instead of disappearing.
+function useAttempt() {
+  const [error, setError] = useState<string | null>(null)
+  const attempt = async (action: () => Promise<unknown>, fallback: string) => {
+    setError(null)
+    try {
+      await action()
+      return true
+    } catch (e) {
+      setError(errorText(e, fallback))
+      return false
+    }
+  }
+  const errorLine = error && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 10 }}>{error}</div>
+  return { attempt, errorLine }
+}
+
 function UsersSection() {
   const [rows, setRows] = useState<UserDto[]>([])
   const [form, setForm] = useState({ username: '', password: '', role: 'Viewer' })
+  const { attempt, errorLine } = useAttempt()
 
-  const load = () => usersApi.getAll().then(setRows)
+  const load = () => attempt(() => usersApi.getAll().then(setRows), 'Could not load users.')
   useEffect(() => {
     load()
   }, [])
 
   async function add() {
     if (!form.username || !form.password) return
-    await usersApi.create(form.username, form.password, form.role)
-    setForm({ username: '', password: '', role: 'Viewer' })
-    load()
+    if (await attempt(() => usersApi.create(form.username, form.password, form.role), 'Could not add the user.')) {
+      setForm({ username: '', password: '', role: 'Viewer' })
+      load()
+    }
   }
 
   async function toggleActive(u: UserDto) {
-    await usersApi.update(u.id, u.role, !u.isActive)
-    load()
+    if (await attempt(() => usersApi.update(u.id, u.role, !u.isActive), `Could not update ${u.username}.`)) load()
   }
 
   async function changeRole(u: UserDto, role: string) {
-    await usersApi.update(u.id, role, u.isActive)
-    load()
+    if (await attempt(() => usersApi.update(u.id, role, u.isActive), `Could not change ${u.username}'s role.`)) load()
   }
 
   async function resetPassword(u: UserDto) {
     const next = window.prompt(`New password for ${u.username} (at least 8 characters):`)
     if (next === null) return
-    try {
-      await usersApi.resetPassword(u.id, next)
+    if (await attempt(() => usersApi.resetPassword(u.id, next), 'Could not reset the password.')) {
       window.alert(`Password reset for ${u.username}.`)
-    } catch (e) {
-      const data = (e as { response?: { data?: unknown } }).response?.data
-      window.alert(typeof data === 'string' ? data : 'Could not reset the password.')
     }
   }
 
@@ -164,6 +179,7 @@ function UsersSection() {
           </tr>
         </tbody>
       </table>
+      {errorLine}
     </div>
   )
 }
@@ -233,6 +249,7 @@ function ColorSetting({
 function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (saved: SettingDto) => void }) {
   const { primaryColor, secondaryColor, mode } = readThemeSettings(rows)
   const [saving, setSaving] = useState(false)
+  const { attempt, errorLine } = useAttempt()
 
   // Saves to the server and previews instantly — applyTheme runs on the merged settings so the whole
   // app (sidebar, badges, status colours) reflects the change immediately, not just on next reload.
@@ -243,7 +260,7 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
   // stale refetch) is what actually rules that out.
   async function set(key: string, value: string) {
     setSaving(true)
-    try {
+    await attempt(async () => {
       const saved = await settingsApi.update(key, value)
       // Deliberately does NOT clear a personal header-toggle override: once a user (including this
       // admin) has explicitly picked a mode for their own browser, changing the sitewide default here
@@ -251,9 +268,8 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
       // button highlighting reflects it), it just may not be what you personally see rendered.
       applyTheme([...rows.filter((r) => r.key !== key), saved])
       onSaved(saved)
-    } finally {
-      setSaving(false)
-    }
+    }, 'Could not save the appearance setting.')
+    setSaving(false)
   }
 
   const modeButton = (m: ThemeMode, label: string) => (
@@ -289,23 +305,53 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
           {saving ? 'Saving…' : mode === 'system' ? "Follows this PC's light/dark setting" : `Always ${mode}`}
         </span>
       </div>
+      {errorLine}
     </div>
   )
+}
+
+// What each setting does, shown under its name. Keys not listed here still show and save as plain text.
+const SETTING_HINTS: Record<string, string> = {
+  AtRiskBufferMinutes: 'A job is "at risk" when its planned finish is within this many minutes of its due date',
+  ShiftStartHour: 'Hour the working day starts (0–23)',
+  ShiftEndHour: 'Hour the working day ends (1–24, after the start)',
+  WorkingDays: 'Days production runs: 0 = Sun … 6 = Sat, comma separated',
+  ScheduleRetentionMonths: 'Archived schedule records older than this are purged by nightly maintenance',
+  PrdPollIntervalMinutes: 'How often production (PRD) files are read',
+  BatchcutPollIntervalSeconds: 'How often the Batchcut watch paths are checked',
+  RawFilesPath: 'MME drop folder: saw files exported from MiTek land here',
+  SawFilesDoNotCutPath: 'Waiting folder: complete saw-file bundles wait here until approved for cutting',
+  SawFilesForCuttingPath: 'Cutting folder: bundles approved for cutting are moved here for the saw',
+  SawFilesDoneBasePath: 'Where cut (__DONE) folders are filed away',
+  MmePollIntervalSeconds: 'How often the MME drop folder is checked',
+  CreepThresholdPercent: 'Flag a job when its production value grows by more than this percentage',
+  MpsPreMoveDaysBeforeProduction: 'MPS files are sent to the station this many working days before production',
+  SchFileSettleSeconds: 'An SCH file is only imported once it has been unchanged this long',
+  NightlyMaintenanceRunHour: 'Hour of the night the maintenance tasks (and the MPS send) run',
+  FreezeWindowDays: 'Lock-out: jobs starting today and the next this-many working days can’t be moved. 0 = off',
 }
 
 function SystemSettingsSection() {
   const [rows, setRows] = useState<SettingDto[]>([])
   const [edits, setEdits] = useState<Record<string, string>>({})
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+  const { attempt, errorLine } = useAttempt()
 
-  const load = () => settingsApi.getAll().then(setRows)
+  const load = () => attempt(() => settingsApi.getAll().then(setRows), 'Could not load settings.')
   useEffect(() => {
     load()
   }, [])
 
   async function save(key: string) {
     if (edits[key] === undefined) return
-    await settingsApi.update(key, edits[key])
-    load()
+    try {
+      const saved = await settingsApi.update(key, edits[key])
+      mergeSaved(saved)
+      setEdits(({ [key]: _, ...rest }) => rest)
+      setRowErrors(({ [key]: _, ...rest }) => rest)
+    } catch (e) {
+      setRowErrors((current) => ({ ...current, [key]: errorText(e, 'Could not save this setting.') }))
+    }
   }
 
   function mergeSaved(saved: SettingDto) {
@@ -328,17 +374,29 @@ function SystemSettingsSection() {
         <tbody>
           {rows.map((s) => (
             <tr key={s.key}>
-              <td>{s.key}</td>
+              <td>
+                <div>{s.key}</div>
+                {SETTING_HINTS[s.key] && <div style={{ fontSize: 11, color: 'var(--text-faint)', maxWidth: 360 }}>{SETTING_HINTS[s.key]}</div>}
+              </td>
               <td>
                 <input
                   style={{ width: '100%' }}
                   value={edits[s.key] ?? s.value}
                   onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') save(s.key)
+                  }}
                 />
+                {rowErrors[s.key] && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 4 }}>{rowErrors[s.key]}</div>}
               </td>
               <td>{new Date(s.updatedAt).toLocaleString()}</td>
               <td>
-                <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => save(s.key)}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '2px 8px', fontSize: 12 }}
+                  disabled={edits[s.key] === undefined || edits[s.key] === s.value}
+                  onClick={() => save(s.key)}
+                >
                   Save
                 </button>
               </td>
@@ -346,14 +404,10 @@ function SystemSettingsSection() {
           ))}
         </tbody>
       </table>
+      {errorLine}
       </div>
     </>
   )
-}
-
-const serverMessage = (e: unknown, fallback: string) => {
-  const data = (e as { response?: { data?: unknown } }).response?.data
-  return typeof data === 'string' ? data : fallback
 }
 
 type ProductForm = { name: string; poolPath: string; archivePath: string; isActive: boolean }
@@ -394,7 +448,7 @@ function ProductsSection() {
       await productsApi.update(p.id, toBody(next))
       load()
     } catch (e) {
-      window.alert(serverMessage(e, 'Could not save the product.'))
+      window.alert(errorText(e, 'Could not save the product.'))
     }
   }
 
@@ -405,7 +459,7 @@ function ProductsSection() {
       setForm({ name: '', poolPath: '', archivePath: '', isActive: true })
       load()
     } catch (e) {
-      window.alert(serverMessage(e, 'Could not add the product.'))
+      window.alert(errorText(e, 'Could not add the product.'))
     }
   }
 
@@ -415,7 +469,7 @@ function ProductsSection() {
       await productsApi.remove(p.id)
       load()
     } catch (e) {
-      window.alert(serverMessage(e, 'Could not delete the product.'))
+      window.alert(errorText(e, 'Could not delete the product.'))
     }
   }
 
@@ -493,22 +547,31 @@ function ProductsSection() {
 function BatchPathsSection() {
   const [rows, setRows] = useState<BatchcutWatchPathDto[]>([])
   const [form, setForm] = useState({ name: '', uncPath: '' })
+  const { attempt, errorLine } = useAttempt()
 
-  const load = () => batchcutWatchPathsApi.getAll().then(setRows)
+  const load = () => attempt(() => batchcutWatchPathsApi.getAll().then(setRows), 'Could not load the watch paths.')
   useEffect(() => {
     load()
   }, [])
 
   async function add() {
-    if (!form.name || !form.uncPath) return
-    await batchcutWatchPathsApi.create({ name: form.name, uncPath: form.uncPath, isActive: true })
-    setForm({ name: '', uncPath: '' })
-    load()
+    if (!form.name.trim() || !form.uncPath.trim()) return
+    const body = { name: form.name.trim(), uncPath: form.uncPath.trim(), isActive: true }
+    if (await attempt(() => batchcutWatchPathsApi.create(body), 'Could not add the watch path.')) {
+      setForm({ name: '', uncPath: '' })
+      load()
+    }
   }
 
-  async function remove(id: number) {
-    await batchcutWatchPathsApi.remove(id)
-    load()
+  async function toggleActive(p: BatchcutWatchPathDto) {
+    const body = { name: p.name, uncPath: p.uncPath, isActive: !p.isActive }
+    if (await attempt(() => batchcutWatchPathsApi.update(p.id, body), `Could not update '${p.name}'.`)) load()
+  }
+
+  // A path with Batchcut Log history is switched off rather than deleted, so its history stays readable.
+  async function remove(p: BatchcutWatchPathDto) {
+    if (!confirm(`Delete the watch path '${p.name}'?`)) return
+    if (await attempt(() => batchcutWatchPathsApi.remove(p.id), `Could not delete '${p.name}'.`)) load()
   }
 
   return (
@@ -518,6 +581,7 @@ function BatchPathsSection() {
           <tr>
             <th>Name</th>
             <th>UNC Path</th>
+            <th>Active</th>
             <th></th>
           </tr>
         </thead>
@@ -527,7 +591,10 @@ function BatchPathsSection() {
               <td>{p.name}</td>
               <td>{p.uncPath}</td>
               <td>
-                <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => remove(p.id)}>
+                <input type="checkbox" checked={p.isActive} onChange={() => toggleActive(p)} aria-label={`${p.name} active`} />
+              </td>
+              <td>
+                <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => remove(p)}>
                   Delete
                 </button>
               </td>
@@ -540,6 +607,7 @@ function BatchPathsSection() {
             <td>
               <input value={form.uncPath} onChange={(e) => setForm({ ...form, uncPath: e.target.value })} placeholder="\\server\\share" />
             </td>
+            <td></td>
             <td>
               <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={add}>
                 Add
@@ -548,15 +616,21 @@ function BatchPathsSection() {
           </tr>
         </tbody>
       </table>
+      <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>
+        A path with entries in the Batchcut Log is switched off instead of deleted, so its history is kept.
+      </div>
+      {errorLine}
     </div>
   )
 }
 
 function BatchLogSection() {
   const [rows, setRows] = useState<BatchcutEventDto[]>([])
+  const { attempt, errorLine } = useAttempt()
 
+  // §5.12: the most recent 50 events.
   useEffect(() => {
-    logsApi.getBatchcutEvents(100).then(setRows)
+    attempt(() => logsApi.getBatchcutEvents(50).then(setRows), 'Could not load the Batchcut Log.')
   }, [])
 
   return (
@@ -590,6 +664,7 @@ function BatchLogSection() {
           )}
         </tbody>
       </table>
+      {errorLine}
     </div>
   )
 }

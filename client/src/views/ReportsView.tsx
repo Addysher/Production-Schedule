@@ -5,6 +5,7 @@ import { scheduleApi } from '../api/schedule'
 import { jobsApi } from '../api/jobs'
 import { reportsApi } from '../api/reports'
 import type { JobSummaryDto, ScheduleItemDto } from '../types/api'
+import { errorText } from '../components/Modal'
 
 function toCsv(headers: string[], rows: (string | number)[][]): string {
   const escape = (v: string | number) => {
@@ -28,6 +29,7 @@ export function ReportsView() {
   const [items, setItems] = useState<ScheduleItemDto[]>([])
   const [jobs, setJobs] = useState<JobSummaryDto[]>([])
   const [report, setReport] = useState<'production' | 'completed-late'>('production')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setDate(d.getDate() - 13)
@@ -36,10 +38,12 @@ export function ReportsView() {
   const [dateTo, setDateTo] = useState(() => localIsoDate(new Date()))
 
   useEffect(() => {
-    Promise.all([scheduleApi.getCurrent(), jobsApi.getAll()]).then(([i, j]) => {
-      setItems(i)
-      setJobs(j)
-    })
+    Promise.all([scheduleApi.getCurrent(), jobsApi.getAll()])
+      .then(([i, j]) => {
+        setItems(i)
+        setJobs(j)
+      })
+      .catch((e) => setLoadError(errorText(e, 'Could not load the schedule for the reports.')))
   }, [])
 
   const inRange = (date: string) => date.slice(0, 10) >= dateFrom && date.slice(0, 10) <= dateTo
@@ -52,7 +56,10 @@ export function ReportsView() {
     reportsApi
       .production(dateFrom, dateTo)
       .then((rows) => setProductionRows(rows.map((r) => ({ station: r.stationName, date: r.date.slice(0, 10), value: r.eqa }))))
-      .catch(() => setProductionRows([]))
+      .catch((e) => {
+        setProductionRows([])
+        setLoadError(errorText(e, 'Could not load the production report.'))
+      })
   }, [dateFrom, dateTo])
 
   const productionChartData = useMemo(() => {
@@ -124,6 +131,7 @@ export function ReportsView() {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Reports</h2>
+      {loadError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{loadError}</div>}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--brand-primary)' }}>

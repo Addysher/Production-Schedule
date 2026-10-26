@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { errorText } from './Modal'
 import type { JobDetailDto } from '../types/api'
 import { StatusPill } from './StatusPill'
 
@@ -21,10 +23,25 @@ export function JobDetailPopup({
   job: JobDetailDto
   onClose: () => void
   onEdit?: () => void
-  onApproveForCutting?: () => void
+  onApproveForCutting?: () => Promise<void>
   onScheduleManually?: () => void
 }) {
   const { user } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function approve() {
+    if (!onApproveForCutting) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onApproveForCutting()
+    } catch (e) {
+      setError(errorText(e, `Could not approve ${job.jobRef} for cutting.`))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div
@@ -90,9 +107,11 @@ export function JobDetailPopup({
           <div style={{ marginTop: 12, fontSize: 12, color: '#0e7490' }}>Manually scheduled for {job.manualScheduleDate} — the scheduler will not move it.</div>
         )}
 
+        {error && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 12 }}>{error}</div>}
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           {user?.isAdmin && job.status === 'ready' && onApproveForCutting && (
-            <button className="btn btn-primary" onClick={onApproveForCutting}>
+            <button className="btn btn-primary" onClick={approve} disabled={busy}>
               Approve for cutting
             </button>
           )}

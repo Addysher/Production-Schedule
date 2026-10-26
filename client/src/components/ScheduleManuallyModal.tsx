@@ -15,12 +15,18 @@ export function ScheduleManuallyModal({ job, onClose, onDone }: { job: JobDetail
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    stationsApi.getAll().then((all) => {
-      const compatible = all.filter((s) => s.isActive && s.componentType === job.componentType)
-      setStations(compatible)
-      setStationId((current) => (current !== '' ? current : (compatible[0]?.id ?? '')))
-    })
-  }, [job.componentType])
+    stationsApi
+      .getAll()
+      .then((all) => {
+        const compatible = all.filter((s) => s.isActive && s.componentType === job.componentType)
+        setStations(compatible)
+        // A pin to a station that's since been switched off (or moved to another product) isn't offered,
+        // so fall back to where the job is planned now, then to the first station that can make it.
+        const offered = (id: number | null) => (id !== null && compatible.some((s) => s.id === id) ? id : null)
+        setStationId(offered(job.manualStationId) ?? offered(job.assignedStationId) ?? compatible[0]?.id ?? '')
+      })
+      .catch((e) => setError(errorText(e, 'Could not load the stations.')))
+  }, [job.componentType, job.manualStationId, job.assignedStationId])
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true)

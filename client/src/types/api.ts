@@ -138,6 +138,7 @@ export interface JobDetailDto {
   manualScheduleDate: string | null
   schComponentType: string | null
   isFrozen: boolean
+  clientRefNumber: string | null
 }
 
 export interface UpdateJobRequest {

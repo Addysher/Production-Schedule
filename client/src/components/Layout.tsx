@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { onJobsChanged, requestPanelOpen } from '../utils/appEvents'
 import { useAuth } from '../auth/AuthContext'
 import { jobsApi } from '../api/jobs'
 import { notificationsApi } from '../api/reports'
@@ -92,11 +93,22 @@ export function Layout({ children }: { children: ReactNode }) {
   const [themeOverride, setThemeOverride] = useState<ThemeMode>(() => getThemeOverride())
   const { counts, acknowledge } = useNotifications(user?.username)
 
+  // Kept current as the day goes on (jobs become late at midnight, or stop being late when edited).
   useEffect(() => {
-    jobsApi
-      .getAll()
-      .then((jobs) => setLateCount(jobs.filter((j) => j.isLate).length))
-      .catch(() => setLateCount(0))
+    const load = () =>
+      jobsApi
+        .getAll()
+        .then((jobs) => setLateCount(jobs.filter((j) => j.isLate).length))
+        .catch(() => {
+          // transient failure — keep the last count
+        })
+    load()
+    const timer = setInterval(load, POLL_MS)
+    const unsubscribe = onJobsChanged(load)
+    return () => {
+      clearInterval(timer)
+      unsubscribe()
+    }
   }, [])
 
   // Applied for every signed-in user (Admin or Viewer render the same themed shell) — see
@@ -143,6 +155,7 @@ export function Layout({ children }: { children: ReactNode }) {
     }
     acknowledge('errors')
     navigate('/dashboard')
+    requestPanelOpen('dashboard')
   }
 
   return (

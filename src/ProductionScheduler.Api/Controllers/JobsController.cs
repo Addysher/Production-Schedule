@@ -38,7 +38,7 @@ public class JobsController : ControllerBase
             j.TotalEqA, j.CompletedEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
             j.InvoiceNumber, j.Delivered, j.Status, isLate, j.DesignStatus,
-            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType, isFrozen);
+            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType, isFrozen, j.ClientRefNumber);
     }
 
     [HttpGet]
@@ -137,19 +137,21 @@ public class JobsController : ControllerBase
             return BadRequest(unknown);
         }
 
-        // Manually entered fields are never clobbered by re-import (§4.4) — here they're the
-        // fields the edit modal is allowed to touch at all.
-        job.ComponentType = request.ComponentType ?? job.ComponentType;
-        job.ClientName = request.ClientName ?? job.ClientName;
-        job.ExpectedDeliveryDate = request.ExpectedDeliveryDate ?? job.ExpectedDeliveryDate;
-        job.EstBookedDeliveryDate = request.EstBookedDeliveryDate ?? job.EstBookedDeliveryDate;
-        job.ClientRefNumber = request.ClientRefNumber ?? job.ClientRefNumber;
-        job.SiteAddress = request.SiteAddress ?? job.SiteAddress;
-        job.SiteSuburb = request.SiteSuburb ?? job.SiteSuburb;
-        job.SupervisorName = request.SupervisorName ?? job.SupervisorName;
-        job.SupervisorNumber = request.SupervisorNumber ?? job.SupervisorNumber;
-        job.BookedDeliveryDate = request.BookedDeliveryDate ?? job.BookedDeliveryDate;
-        job.InvoiceNumber = request.InvoiceNumber ?? job.InvoiceNumber;
+        // The edit form sends the job's complete editable state, so a blank field clears it. The
+        // product is the exception: every job needs one, so leaving it blank keeps the current one.
+        // (Manually entered fields are never clobbered by re-import, §4.4.)
+        static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        job.ComponentType = Clean(request.ComponentType) ?? job.ComponentType;
+        job.ClientName = Clean(request.ClientName);
+        job.ExpectedDeliveryDate = request.ExpectedDeliveryDate;
+        job.EstBookedDeliveryDate = request.EstBookedDeliveryDate;
+        job.ClientRefNumber = Clean(request.ClientRefNumber);
+        job.SiteAddress = Clean(request.SiteAddress);
+        job.SiteSuburb = Clean(request.SiteSuburb);
+        job.SupervisorName = Clean(request.SupervisorName);
+        job.SupervisorNumber = Clean(request.SupervisorNumber);
+        job.BookedDeliveryDate = request.BookedDeliveryDate;
+        job.InvoiceNumber = Clean(request.InvoiceNumber);
         job.Delivered = request.Delivered;
         job.DeliveredAt = request.Delivered && job.DeliveredAt is null ? SiteClock.Now : job.DeliveredAt;
         job.UpdatedAt = SiteClock.Now;

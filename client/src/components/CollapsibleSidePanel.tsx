@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { onPanelOpenRequested } from '../utils/appEvents'
 
 function storageKey(viewKey: string) {
   return `sidePanel.${viewKey}.open`
@@ -13,8 +14,7 @@ export function CollapsibleSidePanel({ viewKey, title, children }: { viewKey: st
     }
   })
 
-  function toggle() {
-    const next = !open
+  function setAndRemember(next: boolean) {
     setOpen(next)
     try {
       localStorage.setItem(storageKey(viewKey), String(next))
@@ -22,6 +22,11 @@ export function CollapsibleSidePanel({ viewKey, title, children }: { viewKey: st
       // localStorage unavailable — panel state just won't persist this session
     }
   }
+
+  const toggle = () => setAndRemember(!open)
+
+  // e.g. the header's error badge, clicked while this view is already showing.
+  useEffect(() => onPanelOpenRequested(viewKey, () => setAndRemember(true)), [viewKey])
 
   return (
     <div style={{ display: 'flex', flexShrink: 0 }}>

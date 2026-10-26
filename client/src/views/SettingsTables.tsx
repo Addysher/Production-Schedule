@@ -5,20 +5,36 @@ import type { JobTypeDto, ShiftDto, StationDto } from '../types/api'
 import { JobTypeModal } from '../components/JobTypeModal'
 import { ShiftModal } from '../components/ShiftModal'
 import { StationModal } from '../components/StationModal'
+import { errorText } from '../components/Modal'
+
+// Loads a table's rows; a failure is shown above the table rather than leaving it silently empty.
+function useRows<T>(fetch: () => Promise<T[]>, what: string) {
+  const [rows, setRows] = useState<T[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const load = () =>
+    fetch()
+      .then((r) => {
+        setRows(r)
+        setLoadError(null)
+      })
+      .catch((e) => setLoadError(errorText(e, `Could not load ${what}.`)))
+  const errorLine = loadError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 10 }}>{loadError}</div>
+  return { rows, load, errorLine }
+}
 
 const editButton = { padding: '2px 10px', fontSize: 12 }
 
 export function StationsSection() {
-  const [rows, setRows] = useState<StationDto[]>([])
   const [editing, setEditing] = useState<StationDto | 'new' | null>(null)
 
-  const load = () => stationsApi.getAll().then(setRows)
+  const { rows, load, errorLine } = useRows(() => stationsApi.getAll(), 'the stations')
   useEffect(() => {
     load()
   }, [])
 
   return (
     <div className="card">
+      {errorLine}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button className="btn btn-primary" onClick={() => setEditing('new')}>
           + Add station
@@ -76,16 +92,16 @@ export function StationsSection() {
 }
 
 export function JobTypesSection() {
-  const [rows, setRows] = useState<JobTypeDto[]>([])
   const [editing, setEditing] = useState<JobTypeDto | 'new' | null>(null)
 
-  const load = () => jobTypesApi.getAll().then(setRows)
+  const { rows, load, errorLine } = useRows(() => jobTypesApi.getAll(), 'the job types')
   useEffect(() => {
     load()
   }, [])
 
   return (
     <div className="card">
+      {errorLine}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button className="btn btn-primary" onClick={() => setEditing('new')}>
           + Add job type
@@ -139,16 +155,16 @@ export function JobTypesSection() {
 }
 
 export function ShiftsSection() {
-  const [rows, setRows] = useState<ShiftDto[]>([])
   const [editing, setEditing] = useState<ShiftDto | 'new' | null>(null)
 
-  const load = () => shiftsApi.getAll().then(setRows)
+  const { rows, load, errorLine } = useRows(() => shiftsApi.getAll(), 'the shifts')
   useEffect(() => {
     load()
   }, [])
 
   return (
     <div className="card">
+      {errorLine}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button className="btn btn-primary" onClick={() => setEditing('new')}>
           + Add shift

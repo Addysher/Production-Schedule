@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { jobTypesApi } from '../api/admin'
 import { quotesApi } from '../api/quotes'
+import { errorText } from '../components/Modal'
 import type { JobTypeDto, QuoteEstimateResponse, QuoteLineRequest } from '../types/api'
 
 interface LineRow extends QuoteLineRequest {
@@ -27,7 +28,7 @@ export function QuotesView() {
           setLines([{ key: nextKey++, jobTypeId: active[0].id, qty: 1 }])
         }
       })
-      .catch(() => {})
+      .catch((e) => setError(errorText(e, 'Could not load the job types, so no quote can be estimated.')))
   }, [])
 
   function addLine() {
@@ -53,8 +54,8 @@ export function QuotesView() {
     try {
       const response = await quotesApi.estimate({ ref, lines: lines.map(({ jobTypeId, qty }) => ({ jobTypeId, qty })) })
       setResult(response)
-    } catch {
-      setError('Could not estimate this quote.')
+    } catch (e) {
+      setError(errorText(e, 'Could not estimate this quote.'))
     } finally {
       setLoading(false)
     }

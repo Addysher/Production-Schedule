@@ -5,13 +5,16 @@ import { jobsApi } from '../api/jobs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
 import { isMovableStatus } from '../auth/permissions'
-import type { CalendarSettingsDto, JobDetailDto, JobSummaryDto, ScheduleItemDto, ScheduleSegmentDto, StationDto } from '../types/api'
+import type { CalendarSettingsDto, JobDetailDto, JobSummaryDto, ScheduleItemDto, ScheduleSegmentDto, StationDto, UpdateJobRequest } from '../types/api'
 import { localIsoDate } from '../utils/dates'
 import { CalendarBlock, LockIcon } from '../components/CalendarBlock'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
 import { StationModal } from '../components/StationModal'
 import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
+import { JobEditModal } from '../components/JobEditModal'
+import { errorText } from '../components/Modal'
+import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
 
 const ROW_HEIGHT = 52
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -69,6 +72,7 @@ export function CalendarView() {
   const [producedToday, setProducedToday] = useState<Record<number, number>>({})
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [pinning, setPinning] = useState<JobDetailDto | null>(null)
+  const [editing, setEditing] = useState<JobDetailDto | null>(null)
   const [showAddStation, setShowAddStation] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
   const [dragError, setDragError] = useState<string | null>(null)
@@ -96,8 +100,16 @@ export function CalendarView() {
     setProducedToday(Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])))
   }
 
+  // After a change made here: reload, and let the sidebar's late count follow.
+  async function reloadAfterChange() {
+    signalJobsChanged()
+    await refresh().catch((e) => setDragError(errorText(e, 'Could not refresh the calendar.')))
+  }
+
   useEffect(() => {
-    refresh().catch(() => {})
+    const load = () => refresh().catch((e) => setDragError(errorText(e, 'Could not load the calendar.')))
+    load()
+    return startAutoRefresh(load)
   }, [])
 
   const { shiftStartHour, shiftEndHour, workingDays } = calendar
@@ -105,7 +117,25 @@ export function CalendarView() {
 
   async function openJob(jobRef: string) {
     const summary = jobs.find((j) => j.jobRef === jobRef)
-    if (summary) setSelectedJob(await jobsApi.getById(summary.id))
+    if (!summary) return
+    try {
+      setSelectedJob(await jobsApi.getById(summary.id))
+    } catch (e) {
+      setDragError(errorText(e, `Could not load ${jobRef}.`))
+    }
+  }
+
+  async function saveEdit(request: UpdateJobRequest) {
+    if (!editing) return
+    await jobsApi.update(editing.id, request)
+    await reloadAfterChange()
+  }
+
+  // Months differ in length: stepping from the 31st must land in the next month, not skip it.
+  function step(direction: 1 | -1) {
+    const a = anchorDate
+    if (mode === 'month') setAnchorDate(new Date(a.getFullYear(), a.getMonth() + direction, 1))
+    else setAnchorDate(new Date(a.getFullYear(), a.getMonth(), a.getDate() + direction * (mode === 'day' ? 1 : 7)))
   }
 
   const hours = useMemo(
@@ -171,7 +201,7 @@ export function CalendarView() {
     setRecalculating(true)
     try {
       const result = await scheduleApi.generate()
-      await refresh()
+      await reloadAfterChange()
       window.alert(
         `Recalculated: ${result.jobsScheduled} job(s) scheduled` +
           (result.jobsFrozen ? `, ${result.jobsFrozen} frozen in place` : '') +
@@ -179,8 +209,7 @@ export function CalendarView() {
           '.',
       )
     } catch (e) {
-      window.alert('Recalculate failed — see the console for details.')
-      console.error(e)
+      setDragError(errorText(e, 'Recalculate failed.'))
     } finally {
       setRecalculating(false)
     }
@@ -230,10 +259,9 @@ export function CalendarView() {
     }
     try {
       await jobsApi.scheduleManually(payload.jobRef, station.id, localIsoDate(date))
-      await refresh()
+      await reloadAfterChange()
     } catch (err) {
-      const data = (err as { response?: { data?: unknown } }).response?.data
-      setDragError(typeof data === 'string' ? data : `Could not move ${payload.jobRef}.`)
+      setDragError(errorText(err, `Could not move ${payload.jobRef}.`))
     }
   }
 
@@ -244,15 +272,7 @@ export function CalendarView() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2 style={{ margin: 0 }}>Calendar</h2>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  const d = new Date(anchorDate)
-                  if (mode === 'month') d.setMonth(d.getMonth() - 1)
-                  else d.setDate(d.getDate() + (mode === 'day' ? -1 : -7))
-                  setAnchorDate(d)
-                }}
-              >
+              <button className="btn btn-secondary" onClick={() => step(-1)}>
                 &larr;
               </button>
               <span style={{ fontSize: 13, fontWeight: 600, minWidth: 140, textAlign: 'center' }}>
@@ -262,15 +282,7 @@ export function CalendarView() {
                     ? `Week of ${startOfWeek(anchorDate).toDateString()}`
                     : anchorDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
               </span>
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  const d = new Date(anchorDate)
-                  if (mode === 'month') d.setMonth(d.getMonth() + 1)
-                  else d.setDate(d.getDate() + (mode === 'day' ? 1 : 7))
-                  setAnchorDate(d)
-                }}
-              >
+              <button className="btn btn-secondary" onClick={() => step(1)}>
                 &rarr;
               </button>
               <button className="btn btn-secondary" onClick={() => setAnchorDate(new Date())}>
@@ -554,6 +566,16 @@ export function CalendarView() {
           job={selectedJob}
           onClose={() => setSelectedJob(null)}
           onScheduleManually={canPin(selectedJob) ? () => { setPinning(selectedJob); setSelectedJob(null) } : undefined}
+          onEdit={user?.isAdmin ? () => { setEditing(selectedJob); setSelectedJob(null) } : undefined}
+          onApproveForCutting={
+            user?.isAdmin && selectedJob.status === 'ready'
+              ? async () => {
+                  await jobsApi.approveForCutting(selectedJob.jobRef)
+                  setSelectedJob(null)
+                  await reloadAfterChange()
+                }
+              : undefined
+          }
         />
       )}
       {pinning && (
@@ -562,10 +584,11 @@ export function CalendarView() {
           onClose={() => setPinning(null)}
           onDone={() => {
             setPinning(null)
-            refresh()
+            reloadAfterChange()
           }}
         />
       )}
+      {editing && <JobEditModal job={editing} onClose={() => setEditing(null)} onSave={saveEdit} />}
       {showAddStation && (
         <StationModal
           onClose={() => setShowAddStation(false)}

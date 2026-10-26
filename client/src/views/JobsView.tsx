@@ -6,7 +6,9 @@ import type { JobDetailDto, JobStatus, JobSummaryDto, UpdateJobRequest } from '.
 import { StatusPill } from '../components/StatusPill'
 import { resolveStatusStyle } from '../components/statusStyles'
 import { JobDetailPopup } from '../components/JobDetailPopup'
-import { JobEditModal } from '../components/JobEditModal'
+import { JobEditModal, updateRequestFrom } from '../components/JobEditModal'
+import { errorText } from '../components/Modal'
+import { signalJobsChanged } from '../utils/appEvents'
 import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
 
@@ -24,16 +26,24 @@ export function JobsView() {
   const [dueTo, setDueTo] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function refresh() {
     setJobs(await jobsApi.getAll())
   }
 
+  // After a change made here: reload, and let the sidebar's late count follow.
+  async function reloadAfterChange() {
+    signalJobsChanged()
+    await refresh().catch((e) => setNotice(errorText(e, 'Could not refresh jobs.')))
+  }
+
   useEffect(() => {
-    refresh().catch(() => {})
+    refresh().catch((e) => setNotice(errorText(e, 'Could not load jobs.')))
   }, [])
 
-  const countFor = (s: JobStatus) => jobs.filter((j) => j.status === s && !(j.isLate && s !== 'completed')).length
+  // Each chip's count is exactly what clicking it shows, so a late job counts under its status and under Late.
+  const countFor = (s: JobStatus) => jobs.filter((j) => j.status === s).length
   const lateCount = jobs.filter((j) => j.isLate).length
   const componentTypes = Array.from(new Set(jobs.map((j) => j.componentType).filter((c): c is string => !!c)))
 
@@ -47,19 +57,29 @@ export function JobsView() {
 
   const detailOf = async (jobRef: string) => {
     const summary = jobs.find((j) => j.jobRef === jobRef)
-    return summary ? jobsApi.getById(summary.id) : null
+    if (!summary) return null
+    try {
+      return await jobsApi.getById(summary.id)
+    } catch (e) {
+      setNotice(errorText(e, `Could not load ${jobRef}.`))
+      return null
+    }
   }
 
   async function remove(jobRef: string, id: number) {
     if (!confirm(`Delete job ${jobRef}? This cannot be undone.`)) return
-    await jobsApi.remove(id)
-    await refresh()
+    try {
+      await jobsApi.remove(id)
+    } catch (e) {
+      setNotice(errorText(e, `Could not delete ${jobRef}.`))
+    }
+    await reloadAfterChange()
   }
 
   async function saveEdit(request: UpdateJobRequest) {
     if (!editingJob) return
     await jobsApi.update(editingJob.id, request)
-    await refresh()
+    await reloadAfterChange()
   }
 
   function toggleSelected(jobRef: string) {
@@ -69,42 +89,49 @@ export function JobsView() {
     setSelected(next)
   }
 
-  async function bulkApproveForCutting() {
+  // Runs an action over the selected jobs, carrying on past failures and reporting them together.
+  async function bulk(action: string, run: (jobRef: string) => Promise<'done' | 'skipped'>) {
     setBusy(true)
+    setNotice(null)
+    const problems: string[] = []
+    let done = 0
+    let skipped = 0
     try {
       for (const jobRef of selected) {
-        if (jobs.find((j) => j.jobRef === jobRef)?.status === 'ready') {
-          await jobsApi.approveForCutting(jobRef).catch(() => {})
+        try {
+          if ((await run(jobRef)) === 'done') done++
+          else skipped++
+        } catch (e) {
+          problems.push(`${jobRef}: ${errorText(e, 'failed')}`)
         }
       }
       setSelected(new Set())
-      await refresh()
+      await reloadAfterChange()
     } finally {
       setBusy(false)
     }
+    const parts = [`${action}: ${done} done`]
+    if (skipped) parts.push(`${skipped} skipped (not applicable)`)
+    if (problems.length) parts.push(`${problems.length} failed — ${problems.join('; ')}`)
+    setNotice(parts.join(', ') + '.')
   }
 
-  async function bulkMarkDelivered() {
-    setBusy(true)
-    try {
-      for (const jobRef of selected) {
-        const detail = await detailOf(jobRef)
-        if (detail) {
-          await jobsApi.update(detail.id, {
-            supervisorName: detail.supervisorName,
-            supervisorNumber: detail.supervisorNumber,
-            bookedDeliveryDate: detail.bookedDeliveryDate,
-            invoiceNumber: detail.invoiceNumber,
-            delivered: true,
-          })
-        }
-      }
-      setSelected(new Set())
-      await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }
+  const bulkApproveForCutting = () =>
+    bulk('Approve for cutting', async (jobRef) => {
+      if (jobs.find((j) => j.jobRef === jobRef)?.status !== 'ready') return 'skipped'
+      await jobsApi.approveForCutting(jobRef)
+      return 'done'
+    })
+
+  const bulkMarkDelivered = () =>
+    bulk('Mark delivered', async (jobRef) => {
+      const summary = jobs.find((j) => j.jobRef === jobRef)
+      if (!summary) return 'skipped'
+      const detail = await jobsApi.getById(summary.id)
+      if (detail.delivered) return 'skipped'
+      await jobsApi.update(detail.id, { ...updateRequestFrom(detail), delivered: true })
+      return 'done'
+    })
 
   const canPin = (job: { status: JobStatus; componentType: string | null; isFrozen: boolean }) =>
     !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType && !job.isFrozen
@@ -130,6 +157,14 @@ export function JobsView() {
       <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ marginTop: 0 }}>Jobs</h2>
+          {notice && (
+            <div className="card" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
+              <span>{notice}</span>
+              <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setNotice(null)}>
+                Dismiss
+              </button>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {STATUSES.map((s) => chip(resolveStatusStyle(s, false).label, countFor(s), s, resolveStatusStyle(s, false).border))}
@@ -268,7 +303,7 @@ export function JobsView() {
               ? async () => {
                   await jobsApi.approveForCutting(selectedJob.jobRef)
                   setSelectedJob(null)
-                  await refresh()
+                  await reloadAfterChange()
                 }
               : undefined
           }
@@ -289,7 +324,7 @@ export function JobsView() {
           onClose={() => setPinningJob(null)}
           onDone={() => {
             setPinningJob(null)
-            refresh()
+            reloadAfterChange()
           }}
         />
       )}

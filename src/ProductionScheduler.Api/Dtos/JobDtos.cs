@@ -14,7 +14,7 @@ public record JobDetailDto(
     DateOnly? ExpectedDeliveryDate, DateOnly? EstBookedDeliveryDate, DateOnly? BookedDeliveryDate,
     string? InvoiceNumber, bool Delivered, string Status, bool IsLate, string DesignStatus,
     int? AssignedStationId, bool IsManuallyScheduled, int? ManualStationId, DateOnly? ManualScheduleDate,
-    string? SchComponentType, bool IsFrozen);
+    string? SchComponentType, bool IsFrozen, string? ClientRefNumber);
 
 public record CreateJobRequest(
     string JobRef, string ComponentType, string? ClientName, DateOnly? ExpectedDeliveryDate,

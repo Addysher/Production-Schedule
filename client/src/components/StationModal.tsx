@@ -21,7 +21,11 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
   const [saving, setSaving] = useState(false)
 
   const loadOverrides = () => {
-    if (station) stationsApi.getCapacityOverrides(station.id).then(setOverrides)
+    if (station)
+      stationsApi
+        .getCapacityOverrides(station.id)
+        .then(setOverrides)
+        .catch((e) => setError(errorText(e, 'Could not load the capacity overrides.')))
   }
   useEffect(() => {
     loadOverrides()
@@ -53,6 +57,7 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
 
   async function addOverride() {
     if (!station || !newOverride.date || newOverride.target === '') return
+    setError(null)
     try {
       await stationsApi.createCapacityOverride(station.id, newOverride.date, Number(newOverride.target))
       setNewOverride({ date: '', target: '' })
@@ -64,7 +69,12 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
 
   async function removeOverride(id: number) {
     if (!station) return
-    await stationsApi.deleteCapacityOverride(station.id, id)
+    setError(null)
+    try {
+      await stationsApi.deleteCapacityOverride(station.id, id)
+    } catch (e) {
+      setError(errorText(e, 'Could not remove the override.'))
+    }
     loadOverrides()
   }
 

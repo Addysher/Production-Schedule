@@ -6,7 +6,7 @@ import { stationsApi } from '../api/stations'
 import { logsApi } from '../api/logs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
-import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, CapacityOverrideDto } from '../types/api'
+import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, CapacityOverrideDto, UpdateJobRequest } from '../types/api'
 import type { MaintenanceLogDto } from '../types/logs'
 import { StatusPill } from '../components/StatusPill'
 import { CreepBadge } from '../components/CreepBadge'
@@ -14,6 +14,9 @@ import { JobDetailPopup } from '../components/JobDetailPopup'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
 import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { isMovableStatus } from '../auth/permissions'
+import { JobEditModal } from '../components/JobEditModal'
+import { errorText } from '../components/Modal'
+import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
 
 function Tile({
   label,
@@ -58,7 +61,9 @@ export function DashboardView() {
   const [producedToday, setProducedToday] = useState<Record<number, number>>({})
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [pinningJob, setPinningJob] = useState<JobDetailDto | null>(null)
+  const [editingJob, setEditingJob] = useState<JobDetailDto | null>(null)
   const [onlyBehindSchedule, setOnlyBehindSchedule] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function refresh() {
     const [jobList, scheduleItems, stationList, recentLogs, produced] = await Promise.all([
@@ -83,8 +88,16 @@ export function DashboardView() {
     setOverridesByStation(Object.fromEntries(overrideEntries))
   }
 
+  // After a change made here: reload, and let the rest of the shell (the sidebar's late count) follow.
+  async function reloadAfterChange() {
+    signalJobsChanged()
+    await refresh().catch((e) => setNotice(errorText(e, 'Could not refresh the dashboard.')))
+  }
+
   useEffect(() => {
-    refresh().catch(() => {})
+    const load = () => refresh().catch((e) => setNotice(errorText(e, 'Could not load the dashboard.')))
+    load()
+    return startAutoRefresh(load)
   }, [])
 
   const runningCount = jobs.filter((j) => j.status === 'in-production').length
@@ -101,33 +114,61 @@ export function DashboardView() {
     .filter((j) => (onlyBehindSchedule ? j.isBehindSchedule : j.isLate || j.isAtRisk || j.isBehindSchedule))
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
 
-  async function openJob(jobRef: string) {
+  async function detailOf(jobRef: string) {
     const summary = jobs.find((j) => j.jobRef === jobRef)
-    if (!summary) return
-    setSelectedJob(await jobsApi.getById(summary.id))
+    if (!summary) return null
+    try {
+      return await jobsApi.getById(summary.id)
+    } catch (e) {
+      setNotice(errorText(e, `Could not load ${jobRef}.`))
+      return null
+    }
   }
 
-  async function approveCreep(id: number) {
-    await scheduleApi.approveCreep(id)
-    await refresh()
+  const openJob = async (jobRef: string) => setSelectedJob(await detailOf(jobRef))
+  const pinJob = async (jobRef: string) => setPinningJob(await detailOf(jobRef))
+
+  async function approveCreep(id: number, jobRef: string) {
+    try {
+      await scheduleApi.approveCreep(id)
+    } catch (e) {
+      setNotice(errorText(e, `Could not approve the creep on ${jobRef}.`))
+    }
+    await reloadAfterChange()
   }
 
   async function approveForCutting(jobRef: string) {
-    await jobsApi.approveForCutting(jobRef)
-    await refresh()
+    setNotice(null)
+    try {
+      await jobsApi.approveForCutting(jobRef)
+    } catch (e) {
+      setNotice(errorText(e, `Could not approve ${jobRef} for cutting.`))
+    }
+    await reloadAfterChange()
   }
 
-  async function pinJob(jobRef: string) {
-    const summary = jobs.find((j) => j.jobRef === jobRef)
-    if (!summary) return
-    setPinningJob(await jobsApi.getById(summary.id))
+  async function saveEdit(request: UpdateJobRequest) {
+    if (!editingJob) return
+    await jobsApi.update(editingJob.id, request)
+    await reloadAfterChange()
   }
+
+  const canPin = (job: { status: JobSummaryDto['status']; componentType: string | null; isFrozen: boolean }) =>
+    !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType && !job.isFrozen
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: 1 }}>
           <h2 style={{ marginTop: 0 }}>Dashboard</h2>
+          {notice && (
+            <div className="card" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#dc2626' }}>
+              <span>{notice}</span>
+              <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setNotice(null)}>
+                Dismiss
+              </button>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             <Tile label="Jobs currently running" value={runningCount} />
@@ -239,7 +280,7 @@ export function DashboardView() {
                             Approve
                           </button>
                         )}
-                        {user?.canReschedule && isMovableStatus(j.status) && !!j.componentType && !j.isFrozen && (
+                        {canPin(j) && (
                           <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => pinJob(j.jobRef)}>
                             Reschedule
                           </button>
@@ -290,7 +331,7 @@ export function DashboardView() {
                     {i.jobRef} <CreepBadge />
                   </span>
                   {user?.isAdmin && (
-                    <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => approveCreep(i.id)}>
+                    <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => approveCreep(i.id, i.jobRef)}>
                       Approve
                     </button>
                   )}
@@ -333,14 +374,45 @@ export function DashboardView() {
         </CollapsibleSidePanel>
       </div>
 
-      {selectedJob && <JobDetailPopup job={selectedJob} onClose={() => setSelectedJob(null)} />}
+      {selectedJob && (
+        <JobDetailPopup
+          job={selectedJob}
+          onClose={() => setSelectedJob(null)}
+          onEdit={
+            user?.isAdmin
+              ? () => {
+                  setEditingJob(selectedJob)
+                  setSelectedJob(null)
+                }
+              : undefined
+          }
+          onApproveForCutting={
+            user?.isAdmin && selectedJob.status === 'ready'
+              ? async () => {
+                  await jobsApi.approveForCutting(selectedJob.jobRef)
+                  setSelectedJob(null)
+                  await reloadAfterChange()
+                }
+              : undefined
+          }
+          onScheduleManually={
+            canPin(selectedJob)
+              ? () => {
+                  setPinningJob(selectedJob)
+                  setSelectedJob(null)
+                }
+              : undefined
+          }
+        />
+      )}
+      {editingJob && <JobEditModal job={editingJob} onClose={() => setEditingJob(null)} onSave={saveEdit} />}
       {pinningJob && (
         <ScheduleManuallyModal
           job={pinningJob}
           onClose={() => setPinningJob(null)}
           onDone={() => {
             setPinningJob(null)
-            refresh()
+            reloadAfterChange()
           }}
         />
       )}

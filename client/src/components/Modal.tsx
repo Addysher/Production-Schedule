@@ -42,7 +42,12 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 export const toTimeOnly = (value: string) => (value.length === 5 ? `${value}:00` : value)
 export const fromTimeOnly = (value: string) => value.slice(0, 5)
 
+// The API answers a refused request with a plain sentence; model-binding failures come back as
+// ProblemDetails instead, whose first field error is the useful part.
 export function errorText(e: unknown, fallback: string): string {
   const data = (e as { response?: { data?: unknown } }).response?.data
-  return typeof data === 'string' && data.length < 300 ? data : fallback
+  if (typeof data === 'string') return data.length > 0 && data.length < 300 ? data : fallback
+  const problem = data as { title?: string; errors?: Record<string, string[]> } | undefined
+  const first = problem?.errors ? Object.values(problem.errors).flat()[0] : undefined
+  return first ?? problem?.title ?? fallback
 }
