@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ProductionScheduler.Infrastructure;
 
 namespace ProductionScheduler.Scheduling.BackgroundServices;
@@ -17,5 +18,22 @@ public static class SettingsReader
     {
         var value = await GetStringAsync(db, key, defaultValue.ToString(), ct);
         return int.TryParse(value, out var parsed) ? parsed : defaultValue;
+    }
+
+    // For a background service's own loop timing: never throws and is always within [min, max], so a
+    // database blip or an out-of-range value can't stop the service (which by default stops the whole API).
+    public static async Task<int> GetLoopSettingAsync(
+        IServiceScopeFactory scopeFactory, string key, int defaultValue, int min, int max, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return Math.Clamp(await GetIntAsync(db, key, defaultValue, ct), min, max);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return defaultValue;
+        }
     }
 }

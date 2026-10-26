@@ -14,8 +14,17 @@ public static class WorkingCalendar
     public static DateTime AdvanceToWorkingWindow(
         DateTime t, int shiftStartHour, int shiftEndHour, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null)
     {
+        // A calendar with no usable working time (e.g. breaks covering the whole shift) would otherwise
+        // loop forever and hang every scheduling request; two weeks without a working minute is a setup error.
+        var giveUpAt = t.AddDays(14);
         while (true)
         {
+            if (t > giveUpAt)
+            {
+                throw new InvalidOperationException(
+                    "The working calendar has no working time in the next two weeks — check Working days, the shift hours and the shift breaks in Settings.");
+            }
+
             if (!workingDays.Contains((int)t.DayOfWeek))
             {
                 t = t.Date.AddDays(1).AddHours(shiftStartHour);

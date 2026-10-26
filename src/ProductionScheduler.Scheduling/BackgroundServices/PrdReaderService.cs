@@ -57,9 +57,7 @@ public class PrdReaderService : BackgroundService
                 _logger.LogError(ex, "PrdReaderService poll failed.");
             }
 
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var intervalMinutes = await SettingsReader.GetIntAsync(db, "PrdPollIntervalMinutes", 5, stoppingToken);
+            var intervalMinutes = await SettingsReader.GetLoopSettingAsync(_scopeFactory, "PrdPollIntervalMinutes", 5, 1, 1440, stoppingToken);
             await Task.Delay(TimeSpan.FromMinutes(intervalMinutes), stoppingToken);
         }
     }

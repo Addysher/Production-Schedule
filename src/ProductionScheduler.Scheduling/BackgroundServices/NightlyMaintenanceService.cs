@@ -29,12 +29,7 @@ public class NightlyMaintenanceService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            int runHour;
-            using (var scope = _scopeFactory.CreateScope())
-            {
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                runHour = await SettingsReader.GetIntAsync(db, "NightlyMaintenanceRunHour", 1, stoppingToken);
-            }
+            var runHour = await SettingsReader.GetLoopSettingAsync(_scopeFactory, "NightlyMaintenanceRunHour", 1, 0, 23, stoppingToken);
 
             var now = SiteClock.Now;
             var nextRun = now.Date.AddHours(runHour);

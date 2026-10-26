@@ -33,17 +33,23 @@ public class SettingsController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<SettingDto>> Update(string key, UpdateSettingRequest request)
     {
+        var value = (request.Value ?? "").Trim(); // blank is valid: it means "not set up yet" for folder paths
+        if (await SettingValidation.ProblemAsync(_db, key, value) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
         var setting = await _db.Settings.FindAsync(key);
         var now = SiteClock.Now;
 
         if (setting is null)
         {
-            setting = new Setting { Key = key, Value = request.Value, UpdatedAt = now };
+            setting = new Setting { Key = key, Value = value, UpdatedAt = now };
             _db.Settings.Add(setting);
         }
         else
         {
-            setting.Value = request.Value;
+            setting.Value = value;
             setting.UpdatedAt = now;
         }
 

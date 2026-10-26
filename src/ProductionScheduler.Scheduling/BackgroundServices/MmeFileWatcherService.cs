@@ -32,9 +32,7 @@ public class MmeFileWatcherService : BackgroundService
                 _logger.LogError(ex, "MmeFileWatcherService poll failed.");
             }
 
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var intervalSeconds = await SettingsReader.GetIntAsync(db, "MmePollIntervalSeconds", 300, stoppingToken);
+            var intervalSeconds = await SettingsReader.GetLoopSettingAsync(_scopeFactory, "MmePollIntervalSeconds", 300, 5, 86400, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);
         }
     }

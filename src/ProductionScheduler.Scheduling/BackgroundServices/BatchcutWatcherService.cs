@@ -45,9 +45,7 @@ public class BatchcutWatcherService : BackgroundService
                 _logger.LogError(ex, "BatchcutWatcherService poll failed.");
             }
 
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var intervalSeconds = await SettingsReader.GetIntAsync(db, "BatchcutPollIntervalSeconds", 30, stoppingToken);
+            var intervalSeconds = await SettingsReader.GetLoopSettingAsync(_scopeFactory, "BatchcutPollIntervalSeconds", 30, 5, 86400, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);
         }
     }

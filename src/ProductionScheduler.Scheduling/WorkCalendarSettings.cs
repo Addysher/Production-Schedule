@@ -40,10 +40,26 @@ public sealed record WorkCalendarSettings(
     {
         var settings = await db.Settings.AsNoTracking().ToDictionaryAsync(s => s.Key, s => s.Value, ct);
 
+        // Values are validated when saved, but a row edited directly in the database must not be able to
+        // hang or crash scheduling: anything unusable falls back to the defaults.
+        int Int(string key, int fallback) => int.TryParse(settings.GetValueOrDefault(key), out var v) ? v : fallback;
+
         var workingDays = settings.GetValueOrDefault("WorkingDays", "1,2,3,4,5")
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(int.Parse)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(p => int.TryParse(p, out var d) ? d : -1)
+            .Where(d => d is >= 0 and <= 6)
             .ToHashSet();
+        if (workingDays.Count == 0)
+        {
+            workingDays = [1, 2, 3, 4, 5];
+        }
+
+        var shiftStart = Int("ShiftStartHour", 6);
+        var shiftEnd = Int("ShiftEndHour", 18);
+        if (shiftStart is < 0 or > 23 || shiftEnd is < 1 or > 24 || shiftStart >= shiftEnd)
+        {
+            (shiftStart, shiftEnd) = (6, 18);
+        }
 
         var breaks = (await db.ShiftBreaks.AsNoTracking().Where(b => b.Shift.IsActive).ToListAsync(ct))
             .Select(b =>
@@ -56,11 +72,6 @@ public sealed record WorkCalendarSettings(
             .OrderBy(b => b.Start)
             .ToList();
 
-        return new WorkCalendarSettings(
-            int.Parse(settings.GetValueOrDefault("ShiftStartHour", "6")),
-            int.Parse(settings.GetValueOrDefault("ShiftEndHour", "18")),
-            workingDays,
-            breaks,
-            int.TryParse(settings.GetValueOrDefault("FreezeWindowDays", "0"), out var freezeDays) ? freezeDays : 0);
+        return new WorkCalendarSettings(shiftStart, shiftEnd, workingDays, breaks, Math.Clamp(Int("FreezeWindowDays", 0), 0, 30));
     }
 }
