@@ -18,4 +18,8 @@ public record CalendarSettingsDto(int ShiftStartHour, int ShiftEndHour, List<int
 
 public record ProductionRowDto(int StationId, string StationName, DateOnly Date, decimal Eqa);
 
+public record CompletionRowDto(DateOnly Date, int Completed, int CompletedLate, int LatePercent, List<string> LateJobRefs);
+
 public record NotificationSummaryDto(int NewJobs, int Errors, DateTime ServerNow);
+
+public record StationProgressDto(int StationId, string JobRef, string? CurrentMemberId, string? NextMemberId, int MembersDone, int MembersTotal);

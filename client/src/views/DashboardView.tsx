@@ -6,7 +6,7 @@ import { stationsApi } from '../api/stations'
 import { logsApi } from '../api/logs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
-import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, CapacityOverrideDto, UpdateJobRequest } from '../types/api'
+import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, CapacityOverrideDto, UpdateJobRequest, StationProgressDto } from '../types/api'
 import type { MaintenanceLogDto } from '../types/logs'
 import { StatusPill } from '../components/StatusPill'
 import { CreepBadge } from '../components/CreepBadge'
@@ -60,6 +60,7 @@ export function DashboardView() {
   const [overridesByStation, setOverridesByStation] = useState<Record<number, CapacityOverrideDto[]>>({})
   const [logs, setLogs] = useState<MaintenanceLogDto[]>([])
   const [producedToday, setProducedToday] = useState<Record<number, number>>({})
+  const [progress, setProgress] = useState<StationProgressDto[]>([])
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [pinningJob, setPinningJob] = useState<JobDetailDto | null>(null)
   const [editingJob, setEditingJob] = useState<JobDetailDto | null>(null)
@@ -67,13 +68,15 @@ export function DashboardView() {
   const [notice, setNotice] = useState<string | null>(null)
 
   async function refresh() {
-    const [jobList, scheduleItems, stationList, recentLogs, produced] = await Promise.all([
+    const [jobList, scheduleItems, stationList, recentLogs, produced, running] = await Promise.all([
       jobsApi.getAll(),
       scheduleApi.getCurrent(),
       stationsApi.getAll(),
       logsApi.getMaintenanceLogs(50),
       reportsApi.production(localIsoDate(new Date()), localIsoDate(new Date())),
+      scheduleApi.stationProgress(),
     ])
+    setProgress(running)
     setJobs(jobList)
     setItems(scheduleItems)
     setStations(stationList.filter((s) => s.isActive))
@@ -181,7 +184,7 @@ export function DashboardView() {
               title="Scheduled completion is within the at-risk buffer of the booked delivery date (Settings -> AtRiskBufferMinutes)"
             />
             <Tile
-              label="Jobs late"
+              label="Behind schedule"
               value={behindScheduleCount}
               accent="#ef4444"
               onClick={() => setOnlyBehindSchedule((v) => !v)}
@@ -195,6 +198,7 @@ export function DashboardView() {
               const stationItems = items.filter((i) => i.stationId === station.id)
               const totalEqAToday = producedToday[station.id] ?? 0
               const current = stationItems.find((i) => i.actualStart && !i.actualEnd)
+              const running = current ? progress.find((p) => p.stationId === station.id && p.jobRef === current.jobRef) : undefined
               const next = stationItems
                 .filter((i) => !i.actualStart)
                 .sort((a, b) => a.plannedStart.localeCompare(b.plannedStart))[0]
@@ -235,8 +239,14 @@ export function DashboardView() {
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
                     Current: {current ? `${current.jobRef} — ${current.componentType ?? ''}` : '—'}
                   </div>
+                  {running && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', paddingLeft: 10 }} data-testid={`station-member-${station.id}`}>
+                      Member {running.currentMemberId ?? '—'}
+                      {running.nextMemberId ? `, then ${running.nextMemberId}` : ''} ({running.membersDone}/{running.membersTotal} done)
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Next: {next ? `${next.jobRef} — ${next.componentType ?? ''}` : '—'}
+                    Next job: {next ? `${next.jobRef} — ${next.componentType ?? ''}` : '—'}
                   </div>
                 </div>
               )

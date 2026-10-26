@@ -8,7 +8,8 @@ import type {
 } from '../types/api'
 
 export const jobsApi = {
-  getAll: () => apiClient.get<JobSummaryDto[]>('/jobs').then((r) => r.data),
+  getAll: (includeArchived = false) =>
+    apiClient.get<JobSummaryDto[]>('/jobs', { params: includeArchived ? { includeArchived: true } : undefined }).then((r) => r.data),
   getById: (id: number) => apiClient.get<JobDetailDto>(`/jobs/${id}`).then((r) => r.data),
   statusRefresh: () => apiClient.get<{ jobsUpdated: number }>('/jobs/status-refresh').then((r) => r.data),
   create: (request: CreateJobRequest) =>

@@ -15,12 +15,14 @@ export function CalendarBlock({
   item,
   segment,
   isLate,
+  isAtRisk = false,
   onDoubleClick,
   compact,
 }: {
   item: ScheduleItemDto
   segment: ScheduleSegmentDto
   isLate: boolean
+  isAtRisk?: boolean
   onDoubleClick: () => void
   compact?: boolean
 }) {
@@ -55,6 +57,14 @@ export function CalendarBlock({
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         {isLate && item.jobStatus !== 'completed' && (
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>LATE</span>
+        )}
+        {!isLate && isAtRisk && (
+          <span
+            title="Planned to finish within the at-risk buffer of its due date"
+            style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, padding: '0 4px', borderRadius: 3, background: '#f59e0b', color: '#1f2937' }}
+          >
+            AT RISK
+          </span>
         )}
         <span style={{ fontWeight: 700 }}>{item.jobRef}</span>
         {days.length > 1 && (

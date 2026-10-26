@@ -28,9 +28,10 @@ export function JobsView() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
 
   async function refresh() {
-    setJobs(await jobsApi.getAll())
+    setJobs(await jobsApi.getAll(showArchived))
   }
 
   // After a change made here: reload, and let the sidebar's late count follow.
@@ -41,14 +42,18 @@ export function JobsView() {
 
   useEffect(() => {
     refresh().catch((e) => setNotice(errorText(e, 'Could not load jobs.')))
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchived])
+
+  // Either the live jobs or (Admin) the archived ones — never both at once.
+  const visible = jobs.filter((j) => j.isArchived === showArchived)
 
   // Each chip's count is exactly what clicking it shows, so a late job counts under its status and under Late.
-  const countFor = (s: JobStatus) => jobs.filter((j) => j.status === s).length
-  const lateCount = jobs.filter((j) => j.isLate).length
-  const componentTypes = Array.from(new Set(jobs.map((j) => j.componentType).filter((c): c is string => !!c)))
+  const countFor = (s: JobStatus) => visible.filter((j) => j.status === s).length
+  const lateCount = visible.filter((j) => j.isLate).length
+  const componentTypes = Array.from(new Set(visible.map((j) => j.componentType).filter((c): c is string => !!c)))
 
-  const filtered = jobs.filter((j) => {
+  const filtered = visible.filter((j) => {
     if (statusFilter === 'late' ? !j.isLate : statusFilter && j.status !== statusFilter) return false
     if (componentFilter && j.componentType !== componentFilter) return false
     if (dueFrom && (!j.dueDate || j.dueDate.slice(0, 10) < dueFrom)) return false
@@ -159,7 +164,23 @@ export function JobsView() {
     <div>
       <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ marginTop: 0 }}>Jobs</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <h2 style={{ marginTop: 0 }}>{showArchived ? 'Archived jobs' : 'Jobs'}</h2>
+            {user?.isAdmin && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} title="Finished jobs tidied away by nightly maintenance">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => {
+                    setSelected(new Set())
+                    setStatusFilter('')
+                    setShowArchived(e.target.checked)
+                  }}
+                />
+                Show archived
+              </label>
+            )}
+          </div>
           {notice && (
             <div className="card" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
               <span>{notice}</span>
@@ -192,7 +213,7 @@ export function JobsView() {
                 {filtered.map((j) => (
                   <tr key={j.jobRef}>
                     <td>
-                      <input type="checkbox" checked={selected.has(j.jobRef)} onChange={() => toggleSelected(j.jobRef)} />
+                      {!j.isArchived && <input type="checkbox" checked={selected.has(j.jobRef)} onChange={() => toggleSelected(j.jobRef)} />}
                     </td>
                     <td>{j.jobRef}</td>
                     <td>{j.jobRef}</td>
@@ -207,17 +228,17 @@ export function JobsView() {
                         <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setSelectedJob(await detailOf(j.jobRef))}>
                           View
                         </button>
-                        {user?.isAdmin && (
+                        {user?.isAdmin && !j.isArchived && (
                           <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setEditingJob(await detailOf(j.jobRef))}>
                             Edit
                           </button>
                         )}
-                        {canPin(j) && (
+                        {canPin(j) && !j.isArchived && (
                           <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: 12 }} onClick={async () => setPinningJob(await detailOf(j.jobRef))}>
                             Schedule
                           </button>
                         )}
-                        {user?.isAdmin && (
+                        {user?.isAdmin && !j.isArchived && (
                           <button className="btn btn-danger" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => remove(j.jobRef, j.id)}>
                             Delete
                           </button>
@@ -272,7 +293,7 @@ export function JobsView() {
               </button>
             )}
 
-            {user?.isAdmin && (
+            {user?.isAdmin && !showArchived && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Bulk actions ({selected.size} selected)</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

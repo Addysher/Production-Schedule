@@ -115,6 +115,7 @@ export function CalendarView() {
 
   const { shiftStartHour, shiftEndHour, workingDays } = calendar
   const isLateFor = (jobRef: string) => jobs.find((j) => j.jobRef === jobRef)?.isLate ?? false
+  const isAtRiskFor = (jobRef: string) => jobs.find((j) => j.jobRef === jobRef)?.isAtRisk ?? false
 
   async function openJob(jobRef: string) {
     const summary = jobs.find((j) => j.jobRef === jobRef)
@@ -365,7 +366,7 @@ export function CalendarView() {
                           onDragEnd={() => setDropTarget(null)}
                           style={{ cursor: canDrag(item) ? 'grab' : undefined }}
                         >
-                          <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
+                          <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} isAtRisk={isAtRiskFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
                         </div>
                       ))}
                       {more > 0 && <div style={{ fontSize: 11, color: 'var(--text-faint)', cursor: 'pointer' }} onClick={() => { setAnchorDate(d); setMode('day') }}>+{more} more</div>}
@@ -465,7 +466,7 @@ export function CalendarView() {
                                 cursor: canDrag(item) ? 'grab' : undefined,
                               }}
                             >
-                              <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} />
+                              <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} isAtRisk={isAtRiskFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} />
                             </div>
                           )
                         })}
@@ -492,7 +493,7 @@ export function CalendarView() {
                           >
                             {blocksForStationDay(station.id, d).map(({ item, segment }, idx) => (
                               <div key={`${item.id}-${idx}`} draggable={canDrag(item)} onDragStart={(e) => onBlockDragStart(e, item)} onDragEnd={() => setDropTarget(null)} style={{ cursor: canDrag(item) ? 'grab' : undefined }}>
-                                <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
+                                <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} isAtRisk={isAtRiskFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
                               </div>
                             ))}
                           </div>

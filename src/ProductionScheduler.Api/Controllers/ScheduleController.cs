@@ -36,6 +36,31 @@ public class ScheduleController : ControllerBase
         return items.Select(si => ToDto(si, frozen.Contains(si.JobRef) && si.ActualStart == null)).ToList();
     }
 
+    // Dashboard station cards (§7): for each job running now, the member being made and the one after it,
+    // in the design's batch/sequence order.
+    [HttpGet("station-progress")]
+    public async Task<ActionResult<List<StationProgressDto>>> StationProgress()
+    {
+        var running = await _db.ScheduleItems
+            .Where(si => !si.IsArchived && si.ActualStart != null && si.ActualEnd == null)
+            .Select(si => new { si.StationId, si.JobRef })
+            .ToListAsync();
+        var jobRefs = running.Select(r => r.JobRef).Distinct().ToList();
+        var members = await _db.JobMembers.AsNoTracking()
+            .Where(m => jobRefs.Contains(m.JobRef))
+            .OrderBy(m => m.Batch).ThenBy(m => m.Sequence).ThenBy(m => m.SubSequence).ThenBy(m => m.MemberId)
+            .Select(m => new { m.JobRef, m.MemberId, m.Done })
+            .ToListAsync();
+
+        return running.Select(r =>
+            {
+                var ofJob = members.Where(m => m.JobRef == r.JobRef).ToList();
+                var toDo = ofJob.Where(m => !m.Done).Select(m => m.MemberId).ToList();
+                return new StationProgressDto(r.StationId, r.JobRef, toDo.ElementAtOrDefault(0), toDo.ElementAtOrDefault(1), ofJob.Count(m => m.Done), ofJob.Count);
+            })
+            .ToList();
+    }
+
     // Readable by every role: the Calendar (Viewer-visible) needs the working window and breaks, but /api/settings is Admin-only.
     [HttpGet("calendar-settings")]
     public async Task<ActionResult<CalendarSettingsDto>> GetCalendarSettings()

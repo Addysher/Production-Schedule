@@ -1,10 +1,8 @@
 import { localIsoDate } from '../utils/dates'
 import { useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { scheduleApi } from '../api/schedule'
-import { jobsApi } from '../api/jobs'
 import { reportsApi } from '../api/reports'
-import type { JobSummaryDto, ScheduleItemDto } from '../types/api'
+import type { CompletionRowDto } from '../types/api'
 import { errorText } from '../components/Modal'
 
 function toCsv(headers: string[], rows: (string | number)[][]): string {
@@ -26,8 +24,6 @@ function downloadCsv(filename: string, csv: string) {
 }
 
 export function ReportsView() {
-  const [items, setItems] = useState<ScheduleItemDto[]>([])
-  const [jobs, setJobs] = useState<JobSummaryDto[]>([])
   const [report, setReport] = useState<'production' | 'completed-late'>('production')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(() => {
@@ -37,16 +33,6 @@ export function ReportsView() {
   })
   const [dateTo, setDateTo] = useState(() => localIsoDate(new Date()))
 
-  useEffect(() => {
-    Promise.all([scheduleApi.getCurrent(), jobsApi.getAll()])
-      .then(([i, j]) => {
-        setItems(i)
-        setJobs(j)
-      })
-      .catch((e) => setLoadError(errorText(e, 'Could not load the schedule for the reports.')))
-  }, [])
-
-  const inRange = (date: string) => date.slice(0, 10) >= dateFrom && date.slice(0, 10) <= dateTo
 
   // Report 1: Daily Production Value by Station. Comes from when each member was actually completed, so a job
   // that ran over three days is credited to the days it was really produced, not all to its start day.
@@ -74,39 +60,19 @@ export function ReportsView() {
 
   const stationNames = useMemo(() => Array.from(new Set(productionRows.map((r) => r.station))), [productionRows])
 
-  // Report 2: Jobs Completed vs Late by day.
-  // Completed = distinct jobs whose ScheduleItem.ActualEnd falls on that day.
-  // Late = jobs due that day that are currently flagged late — the API has no historical daily
-  // lateness snapshot, so this is a same-day proxy rather than a true point-in-time trend.
-  const completedLateRows = useMemo(() => {
-    const byDate = new Map<string, { date: string; completed: Set<string>; late: Set<string> }>()
-    const ensure = (date: string) => {
-      let e = byDate.get(date)
-      if (!e) {
-        e = { date, completed: new Set(), late: new Set() }
-        byDate.set(date, e)
-      }
-      return e
-    }
-    for (const item of items) {
-      if (item.actualEnd && inRange(item.actualEnd)) {
-        ensure(item.actualEnd.slice(0, 10)).completed.add(item.jobRef)
-      }
-    }
-    for (const job of jobs) {
-      if (job.isLate && job.dueDate && inRange(job.dueDate)) {
-        ensure(job.dueDate.slice(0, 10)).late.add(job.jobRef)
-      }
-    }
-    return Array.from(byDate.values())
-      .map((e) => ({
-        date: e.date,
-        completed: e.completed.size,
-        late: e.late.size,
-        latePct: e.completed.size + e.late.size > 0 ? Math.round((e.late.size / (e.completed.size + e.late.size)) * 100) : 0,
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date))
-  }, [items, jobs, dateFrom, dateTo])
+  // Report 2: Jobs Completed vs Completed Late, by the day each job actually finished. A job is late when
+  // it finished on a later day than it was due (worked out on the server, archived jobs included).
+  const [completedLateRows, setCompletedLateRows] = useState<CompletionRowDto[]>([])
+  useEffect(() => {
+    if (!dateFrom || !dateTo) return
+    reportsApi
+      .completions(dateFrom, dateTo)
+      .then(setCompletedLateRows)
+      .catch((e) => {
+        setCompletedLateRows([])
+        setLoadError(errorText(e, 'Could not load the completions report.'))
+      })
+  }, [dateFrom, dateTo])
 
   function exportCsv() {
     if (report === 'production') {
@@ -121,8 +87,8 @@ export function ReportsView() {
       downloadCsv(
         'jobs-completed-vs-late.csv',
         toCsv(
-          ['Date', 'Jobs Completed', 'Jobs Late', 'Late %'],
-          completedLateRows.map((r) => [r.date, r.completed, r.late, r.latePct]),
+          ['Date', 'Jobs Completed', 'Completed Late', 'Late %', 'Late Jobs'],
+          completedLateRows.map((r) => [r.date, r.completed, r.completedLate, r.latePercent, r.lateJobRefs.join(' ')]),
         ),
       )
     }
@@ -211,7 +177,7 @@ export function ReportsView() {
                 <Tooltip />
                 <Legend />
                 <Bar dataKey="completed" name="Completed" fill="#22c55e" />
-                <Bar dataKey="late" name="Late" fill="#ef4444" />
+                <Bar dataKey="completedLate" name="Completed late" fill="#ef4444" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -221,8 +187,9 @@ export function ReportsView() {
                 <tr>
                   <th>Date</th>
                   <th>Jobs Completed</th>
-                  <th>Jobs Late</th>
+                  <th>Completed Late</th>
                   <th>Late %</th>
+                  <th>Late Jobs</th>
                 </tr>
               </thead>
               <tbody>
@@ -230,8 +197,9 @@ export function ReportsView() {
                   <tr key={i}>
                     <td>{r.date}</td>
                     <td>{r.completed}</td>
-                    <td>{r.late}</td>
-                    <td>{r.latePct}%</td>
+                    <td>{r.completedLate}</td>
+                    <td>{r.latePercent}%</td>
+                    <td style={{ fontSize: 12 }}>{r.lateJobRefs.join(', ') || '—'}</td>
                   </tr>
                 ))}
               </tbody>

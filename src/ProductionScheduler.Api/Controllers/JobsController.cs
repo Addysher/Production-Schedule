@@ -43,10 +43,16 @@ public class JobsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<JobSummaryDto>>> GetAll()
+    public async Task<ActionResult<List<JobSummaryDto>>> GetAll([FromQuery] bool includeArchived = false)
     {
+        // Archived jobs (finished and tidied away by nightly maintenance) are history: Admins can list them.
+        if (includeArchived && !User.IsInRole("Admin"))
+        {
+            return Forbid();
+        }
+
         var jobs = await _db.Jobs
-            .Where(j => !j.IsArchived)
+            .Where(j => includeArchived || !j.IsArchived)
             .Include(j => j.AssignedStation)
             .AsNoTracking()
             .ToListAsync();
@@ -64,7 +70,7 @@ public class JobsController : ControllerBase
                     j.EstimatedCompletionDate,
                     JobStatusService.IsAtRisk(j.EstimatedCompletionDate, dueDate, j.Status, now, atRiskBufferMinutes),
                     JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now),
-                    frozen.Contains(j.JobRef), j.SawBundleStatus);
+                    frozen.Contains(j.JobRef), j.SawBundleStatus, j.IsArchived);
             })
             .ToList();
     }

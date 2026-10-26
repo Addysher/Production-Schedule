@@ -39,4 +39,32 @@ public class ReportsController : ControllerBase
             .OrderBy(r => r.Date).ThenBy(r => r.StationName)
             .ToList();
     }
+
+    // Jobs completed vs completed late, by the day each job actually finished (§5.6). Late = finished on
+    // a later day than it was due (est. booked delivery, else expected delivery). Archived jobs count
+    // too, so the history doesn't thin out as nightly maintenance tidies up.
+    [HttpGet("completions")]
+    public async Task<ActionResult<List<CompletionRowDto>>> Completions([FromQuery] DateOnly dateFrom, [FromQuery] DateOnly dateTo)
+    {
+        var rangeStart = dateFrom.ToDateTime(TimeOnly.MinValue);
+        var rangeEnd = dateTo.AddDays(1).ToDateTime(TimeOnly.MinValue);
+
+        var finished = await _db.ScheduleItems
+            .Where(i => i.ActualEnd != null && i.ActualEnd >= rangeStart && i.ActualEnd < rangeEnd && i.Job.Status == "completed")
+            .Select(i => new { i.JobRef, FinishedAt = i.ActualEnd!.Value, Due = i.Job.EstBookedDeliveryDate ?? i.Job.ExpectedDeliveryDate })
+            .ToListAsync();
+
+        return finished
+            .GroupBy(f => f.JobRef) // one row per job, at its final finish
+            .Select(g => g.OrderByDescending(f => f.FinishedAt).First())
+            .GroupBy(f => DateOnly.FromDateTime(f.FinishedAt))
+            .Select(day =>
+            {
+                var late = day.Where(f => f.Due is { } due && DateOnly.FromDateTime(f.FinishedAt) > due).Select(f => f.JobRef).OrderBy(r => r).ToList();
+                var count = day.Count();
+                return new CompletionRowDto(day.Key, count, late.Count, count == 0 ? 0 : (int)Math.Round(late.Count * 100.0 / count), late);
+            })
+            .OrderBy(r => r.Date)
+            .ToList();
+    }
 }

@@ -5,7 +5,7 @@ namespace ProductionScheduler.Api.Dtos;
 public record JobSummaryDto(
     int Id, string JobRef, string? ComponentType, string? ClientName, int? StationId, string? StationName,
     DateOnly? DueDate, decimal? TotalEqA, string Status, bool IsLate,
-    DateTime? EstimatedCompletionDate, bool IsAtRisk, bool IsBehindSchedule, bool IsFrozen, string? SawBundleStatus);
+    DateTime? EstimatedCompletionDate, bool IsAtRisk, bool IsBehindSchedule, bool IsFrozen, string? SawBundleStatus, bool IsArchived);
 
 public record JobDetailDto(
     int Id, string JobRef, string? ComponentType, string? ClientName, string? SiteAddress, string? SiteSuburb,

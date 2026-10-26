@@ -112,6 +112,7 @@ export interface JobSummaryDto {
   isBehindSchedule: boolean
   isFrozen: boolean
   sawBundleStatus: SawBundleStatus
+  isArchived: boolean
 }
 
 export interface JobDetailDto {
@@ -261,6 +262,24 @@ export interface ProductionRowDto {
   stationName: string
   date: string
   eqa: number
+}
+
+// Dashboard: the member being made on a running job, and the one after it (§7).
+export interface StationProgressDto {
+  stationId: number
+  jobRef: string
+  currentMemberId: string | null
+  nextMemberId: string | null
+  membersDone: number
+  membersTotal: number
+}
+
+export interface CompletionRowDto {
+  date: string
+  completed: number
+  completedLate: number
+  latePercent: number
+  lateJobRefs: string[]
 }
 
 export interface NotificationSummaryDto {
