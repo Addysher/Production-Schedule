@@ -42,13 +42,12 @@ export function CalendarBlock({
       onDoubleClick={onDoubleClick}
       title={`${item.jobRef} — ${item.componentType ?? ''}${days.length > 1 ? ` (day ${dayNumber} of ${days.length})` : ''}`}
       style={{
-        background: style.block,
-        borderLeft: `3px ${item.isTba ? 'dashed' : 'solid'} ${style.border}`,
-        // Pencilled-in (TBA) work looks provisional.
-        opacity: item.isTba ? 0.7 : 1,
-        outline: item.isTba ? `1px dashed ${style.border}` : undefined,
+        // Pencilled-in (TBA) work has its own colour and a dashed outline, whatever its status.
+        background: item.isTba ? 'var(--pencil-block)' : style.block,
+        borderLeft: item.isTba ? '3px dashed var(--pencil-border)' : `3px solid ${style.border}`,
+        outline: item.isTba ? '1.5px dashed var(--pencil-border)' : undefined,
         outlineOffset: -1,
-        color: style.text,
+        color: item.isTba ? 'var(--pencil-text)' : style.text,
         borderRadius: 4,
         padding: compact ? '3px 6px' : '6px 8px',
         fontSize: 12,

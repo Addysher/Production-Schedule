@@ -9,7 +9,8 @@ import { stationsApi } from '../api/stations'
 import { useAuth } from '../auth/AuthContext'
 import { errorText } from '../components/Modal'
 import { StatusPill } from '../components/StatusPill'
-import type { FactoryDto, JobSummaryDto, ScheduleItemDto, StationDto, StationProgressDto } from '../types/api'
+import type { FactoryDto, JobSummaryDto, LineProgressDto, ScheduleItemDto, StationDto, StationProgressDto } from '../types/api'
+import { LineProgress } from '../components/LineProgress'
 import { startAutoRefresh } from '../utils/appEvents'
 import { localIsoDate } from '../utils/dates'
 
@@ -91,6 +92,7 @@ type Snapshot = {
   items: ScheduleItemDto[]
   jobs: JobSummaryDto[]
   progress: StationProgressDto[]
+  lines: LineProgressDto[]
   produced: Record<number, number>
   targets: Record<number, number | null>
   loadedAt: Date
@@ -105,13 +107,14 @@ export function KioskView() {
     const load = async () => {
       try {
         const today = localIsoDate(new Date())
-        const [factories, stations, items, jobs, progress, produced] = await Promise.all([
+        const [factories, stations, items, jobs, progress, produced, lines] = await Promise.all([
           factoriesApi.getAll(),
           stationsApi.getAll(),
           scheduleApi.getCurrent(),
           jobsApi.getAll(),
           scheduleApi.stationProgress(),
           reportsApi.production(today, today),
+          scheduleApi.lineProgress(),
         ])
         const factory = factories.find((f) => String(f.id) === factoryId)
         if (!factory) {
@@ -125,6 +128,7 @@ export function KioskView() {
           items,
           jobs,
           progress,
+          lines,
           produced: Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])),
           targets: Object.fromEntries(mine.map((s) => [s.id, s.todayTargetEqa])),
           loadedAt: new Date(),
@@ -178,6 +182,7 @@ export function KioskView() {
                     <div style={{ width: `${pct}%`, height: '100%', background: pct >= 100 ? '#16a34a' : 'var(--brand-primary)' }} />
                   </div>
                 ) : null}
+                <LineProgress progress={data.lines.find((l) => l.stationId === station.id)} large />
               </div>
 
               <div>

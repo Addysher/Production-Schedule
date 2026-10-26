@@ -27,11 +27,11 @@ public class JobsController : ControllerBase
     }
 
     // v3.0: the booked delivery date is the deadline; without one the job is TBA and its rough date
-    // (est. booked, else expected delivery) stands in.
-    private static DateOnly? DueDateOf(Job j) => j.BookedDeliveryDate ?? j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate;
+    // (expected delivery, else est. booked) stands in.
+    private static DateOnly? DueDateOf(Job j) => j.BookedDeliveryDate ?? j.ExpectedDeliveryDate ?? j.EstBookedDeliveryDate;
 
-    // Same rule as the scheduler: only a Final Design job with a booked delivery date is called up.
-    private static bool IsTba(Job j) => j.BookedDeliveryDate is null || j.DesignStatus != "FinalDesign";
+    // Same rule as the scheduler: a job with a booked delivery date (quote or final design) is called up.
+    private static bool IsTba(Job j) => j.BookedDeliveryDate is null;
 
     private async Task<JobDetailDto> ToDetailDtoAsync(Job j) =>
         ToDetailDto(j, (await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(j.JobRef), await _db.JobMembers.CountAsync(m => m.JobRef == j.JobRef));

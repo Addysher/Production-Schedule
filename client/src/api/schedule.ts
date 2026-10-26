@@ -1,8 +1,9 @@
 import { apiClient } from './client'
-import type { CalendarSettingsDto, ScheduleGenerationResult, ScheduleItemDto, StationProgressDto } from '../types/api'
+import type { CalendarSettingsDto, LineProgressDto, ScheduleGenerationResult, ScheduleItemDto, StationProgressDto } from '../types/api'
 
 export const scheduleApi = {
   getCurrent: () => apiClient.get<ScheduleItemDto[]>('/schedule/current').then((r) => r.data),
+  lineProgress: () => apiClient.get<LineProgressDto[]>('/schedule/line-progress').then((r) => r.data),
   stationProgress: () => apiClient.get<StationProgressDto[]>('/schedule/station-progress').then((r) => r.data),
   getCalendarSettings: () => apiClient.get<CalendarSettingsDto>('/schedule/calendar-settings').then((r) => r.data),
   generate: () => apiClient.post<ScheduleGenerationResult>('/schedule/generate').then((r) => r.data),

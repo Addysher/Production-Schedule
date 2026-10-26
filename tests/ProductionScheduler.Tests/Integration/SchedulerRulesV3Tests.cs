@@ -153,6 +153,67 @@ public class SchedulerRulesV3Tests
     }
 
     [Fact]
+    public async Task ABookedQuote_GetsAFirmPlace_AndPencillingUsesTheExpectedDeliveryDate()
+    {
+        await _f.AddStationAsync("V3 Quote Line", "V3Quote");
+        var quote = NewJob("V3-QUOTE-BOOKED", "V3Quote", 60, SiteClock.Today.AddDays(9));
+        quote.DesignStatus = "Quote";
+        quote.Status = "scheduled";
+        var pencilled = NewJob("V3-TBA-EXPECTED", "V3Quote", 60, booked: null, rough: SiteClock.Today.AddDays(30));
+        pencilled.ExpectedDeliveryDate = SiteClock.Today.AddDays(4); // the expected date wins over est. booked
+        await AddJobsAsync(quote, pencilled);
+        var admin = await _f.ClientAsync();
+        await admin.PostAsync("/api/schedule/generate", null);
+
+        Assert.False((await ItemAsync(admin, "V3-QUOTE-BOOKED"))!.Value.GetProperty("isTba").GetBoolean());
+        Assert.True(Start(await ItemAsync(admin, "V3-TBA-EXPECTED")) < Start(await ItemAsync(admin, "V3-QUOTE-BOOKED")));
+    }
+
+    [Fact]
+    public async Task ALineClosure_DoesntCountAsAWorkingDayInTheDeliveryWindow()
+    {
+        var line = await _f.AddStationAsync("V3 Holiday Line", "V3Holiday");
+        var due = SiteClock.Today.AddDays(10);
+        await AddJobsAsync(NewJob("V3-HOLIDAY", "V3Holiday", 60, due));
+        await _f.WithDbAsync(async db =>
+        {
+            db.StationCapacityOverrides.Add(new StationCapacityOverride { StationId = line, OverrideDate = due.AddDays(-1), IsClosed = true, Note = "Holiday", CreatedAt = SiteClock.Now });
+            await db.SaveChangesAsync();
+        });
+        await _f.SetSettingsAsync(("ProductionLeadDaysMin", "1"), ("ProductionLeadDaysMax", "1"));
+        try
+        {
+            var admin = await _f.ClientAsync();
+            await admin.PostAsync("/api/schedule/generate", null);
+
+            // One working day before delivery is the day before the holiday, not the holiday itself.
+            Assert.Equal(due.AddDays(-2), DateOnly.FromDateTime(Start(await ItemAsync(admin, "V3-HOLIDAY"))));
+        }
+        finally
+        {
+            await _f.SetSettingsAsync(("ProductionLeadDaysMin", "0"), ("ProductionLeadDaysMax", "0"));
+        }
+    }
+
+    [Fact]
+    public async Task ASupervisor_CanPlanADayChange_AndLineProgressIsReported()
+    {
+        var line = await _f.AddStationAsync("V3 Sup Line", "V3Sup", eqaPerHour: 10);
+        var admin = await _f.ClientAsync();
+        await admin.PostAsJsonAsync("/api/users", new { username = "v3_supervisor", password = "Pass1234!", role = "Supervisor" });
+        var supervisor = await _f.ClientAsync("v3_supervisor", "Pass1234!");
+        var day = SiteClock.Today.AddDays(6);
+
+        var created = await supervisor.PostAsJsonAsync($"/api/stations/{line}/capacity-overrides", new { overrideDate = day, isClosed = true, note = "Maintenance" });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var inRange = await supervisor.GetFromJsonAsync<JsonElement>($"/api/stations/capacity-overrides?from={day:yyyy-MM-dd}&to={day:yyyy-MM-dd}");
+        Assert.Contains(inRange.EnumerateArray(), c => c.GetProperty("stationId").GetInt32() == line);
+
+        var progress = (await supervisor.GetFromJsonAsync<JsonElement>("/api/schedule/line-progress")).EnumerateArray().Single(p => p.GetProperty("stationId").GetInt32() == line);
+        Assert.Equal(0m, progress.GetProperty("madeToday").GetDecimal());
+    }
+
+    [Fact]
     public async Task ACutJob_GetsNoPriority_ProductionOrderIsByDeliveryDate()
     {
         await _f.AddStationAsync("V3 Cut Line", "V3Cut");

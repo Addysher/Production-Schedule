@@ -203,8 +203,8 @@ The domain is the database model — see §4.2 for every entity and column. The 
 **How a schedule run works (v3.0, `ScheduleGenerationService`)** — modelled on how the factory plans by hand in its spreadsheet:
 
 1. **What gets planned.**
-   - A job is **called up** for production when the office has entered its **Booked Delivery** date (typed in on the job). That date is its deadline and sets its priority.
-   - A job without one is **TBA**. This includes quote-stage jobs. TBA jobs are **pencilled in** by their rough date (Est. Booked Delivery, else Expected Delivery) and hold their slot like any job. They are marked TBA on screen, and can't be approved for cutting or have their MPS sent to a line until they're booked.
+   - A job is **called up** for production when the office has entered its **Booked Delivery** date (typed in on the job). That date is its deadline and sets its priority. This applies to quotes as well as final designs: a booked quote gets a firm place on the lines.
+   - A job without one is **TBA**, whether it is a quote or a final design. TBA jobs are **pencilled in** by their **Expected Delivery** date (else Est. Booked) and hold their slot like any job. On the Calendar they have their own violet colour and a dashed outline. They can't be approved for cutting or have their MPS sent to a line until they're booked.
    - A rough date that has already passed counts as unknown (two weeks out, like no date), so a stale estimate can't jump ahead of booked work.
    - `PencilTbaJobs = false` takes TBA jobs off the plan entirely.
 2. **Work already on the floor.**
@@ -214,7 +214,7 @@ The domain is the database model — see §4.2 for every entity and column. The 
 4. **Order.**
    - Deadline first (booked date, else rough date), with precedence rules on top. Pinned jobs are placed first so their days are held.
    - **Cut jobs get no priority**: the cutting order follows the production order.
-5. **Delivery window.** A job should finish at least `ProductionLeadDaysMin` working days before delivery. It may not start more than `ProductionLeadDaysMax` working days before it (0 = no limit), so finished work doesn't fill the yard.
+5. **Delivery window.** A job should finish at least `ProductionLeadDaysMin` working days before delivery. It may not start more than `ProductionLeadDaysMax` working days before it (0 = no limit), so finished work doesn't fill the yard. Working days are counted **on the job's line**, so its closures (shutdowns, public holidays) don't count.
 6. **Which line.**
    - One job per line; a job is never split.
    - The **first line** (by display order) that makes the product takes the job if it can finish in its window. Only otherwise does the work go to the next line. If no line can make the date, the job goes where it finishes soonest and shows as at risk / late.
@@ -222,10 +222,15 @@ The domain is the database model — see §4.2 for every entity and column. The 
    - A job made of several products (e.g. trusses and walls) is already separate jobs, one per product, so each goes to its own line.
 7. **How long.**
    - A line makes `Stations.EqaPerHour` EqA per working hour, so a job takes EqA ÷ rate. Not set means 60/h, a minute per EqA.
-   - A line's day is the shifts' working day minus breaks (§5.18), except where that line has a **day change**: overtime hours, or closed.
+   - A line's day is the shifts' working day minus breaks (§5.18), except where that line has a **day change**: overtime hours, or closed. Day changes are set **on the Calendar**, by Admins and Supervisors: the chip on each line's day (Week view: "Show weekends" to open a weekend for overtime). "Apply to all lines" covers a public holiday.
 8. **Write the plan.**
    - Each job's not-started `ScheduleItems` row is replaced, with one `ScheduleSegment` per stretch of work.
    - `AssignedStationId`, `EstimatedStartDate` and `EstimatedCompletionDate` are written back to the job.
+
+**Feedback loop (PRD).**
+- The Dashboard and kiosk show each line's progress today: the Eq the plan had made by now against what the PRD files say was made ("x Eq behind / ahead / on plan"; behind by more than 10% shows red).
+- **Creep** (§5.14) compares a running job's PRD progress with its production plan, measured in the line's working time from when it actually started (nights, weekends and breaks don't count). Falling behind by more than `CreepThresholdPercent` raises the alert. The plan holds the job's original finish until an Admin approves the creep; then its remaining work is re-planned from now and the line behind it is pushed back.
+- **At risk** stays "planned to finish within `AtRiskBufferMinutes` (24 h) of delivery"; **Late** = the delivery date has passed.
 
 **When it runs:**
 - after SCH imports;

@@ -6,7 +6,8 @@ import { stationsApi } from '../api/stations'
 import { logsApi } from '../api/logs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
-import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, UpdateJobRequest, StationProgressDto } from '../types/api'
+import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, UpdateJobRequest, StationProgressDto, LineProgressDto } from '../types/api'
+import { LineProgress } from '../components/LineProgress'
 import type { MaintenanceLogDto } from '../types/logs'
 import { StatusPill } from '../components/StatusPill'
 import { TbaTag } from '../components/TbaTag'
@@ -61,6 +62,7 @@ export function DashboardView() {
   const [logs, setLogs] = useState<MaintenanceLogDto[]>([])
   const [producedToday, setProducedToday] = useState<Record<number, number>>({})
   const [progress, setProgress] = useState<StationProgressDto[]>([])
+  const [lineProgress, setLineProgress] = useState<LineProgressDto[]>([])
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [pinningJob, setPinningJob] = useState<JobDetailDto | null>(null)
   const [editingJob, setEditingJob] = useState<JobDetailDto | null>(null)
@@ -68,15 +70,17 @@ export function DashboardView() {
   const [notice, setNotice] = useState<string | null>(null)
 
   async function refresh() {
-    const [jobList, scheduleItems, stationList, recentLogs, produced, running] = await Promise.all([
+    const [jobList, scheduleItems, stationList, recentLogs, produced, running, linesNow] = await Promise.all([
       jobsApi.getAll(),
       scheduleApi.getCurrent(),
       stationsApi.getAll(),
       logsApi.getMaintenanceLogs(50),
       reportsApi.production(localIsoDate(new Date()), localIsoDate(new Date())),
       scheduleApi.stationProgress(),
+      scheduleApi.lineProgress(),
     ])
     setProgress(running)
+    setLineProgress(linesNow)
     setJobs(jobList)
     setItems(scheduleItems)
     setStations(stationList.filter((s) => s.isActive))
@@ -227,6 +231,7 @@ export function DashboardView() {
                     <span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600 }}> / {target ?? '—'}</span>
                     <span style={{ fontSize: 12, color: 'var(--text-faint)', fontWeight: 400 }}> Eq today</span>
                   </div>
+                  <LineProgress progress={lineProgress.find((p) => p.stationId === station.id)} />
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
                     Current: {current ? `${current.jobRef} — ${current.componentType ?? ''}` : '—'}
                   </div>

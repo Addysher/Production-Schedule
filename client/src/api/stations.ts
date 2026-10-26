@@ -36,6 +36,11 @@ export const stationsApi = {
   // A public holiday or site shutdown: the same change on every active line.
   createForAllLines: (change: DayChange) =>
     apiClient.post<CapacityOverrideDto[]>('/stations/capacity-overrides/all-lines', change).then((r) => r.data),
+  updateCapacityOverride: (stationId: number, overrideId: number, change: DayChange) =>
+    apiClient.put<CapacityOverrideDto>(`/stations/${stationId}/capacity-overrides/${overrideId}`, change).then((r) => r.data),
+  // Every line's day changes between two dates (inclusive, yyyy-MM-dd), for the Calendar.
+  getDayChanges: (from: string, to: string) =>
+    apiClient.get<CapacityOverrideDto[]>('/stations/capacity-overrides', { params: { from, to } }).then((r) => r.data),
   deleteCapacityOverride: (stationId: number, overrideId: number) =>
     apiClient.delete(`/stations/${stationId}/capacity-overrides/${overrideId}`),
 }

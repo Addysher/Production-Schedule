@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
 import { factoriesApi } from '../api/admin'
 import { stationsApi } from '../api/stations'
-import type { CapacityOverrideDto, FactoryDto, StationDto } from '../types/api'
-import { Field, Modal, errorText, fromTimeOnly, toTimeOnly } from './Modal'
-import { TimeInput } from './TimeInput'
+import type { FactoryDto, StationDto } from '../types/api'
+import { Field, Modal, errorText } from './Modal'
 import { ProductSelect } from './ProductSelect'
 
-// Create or edit a station (a line). Editing also manages its one-off day changes: overtime hours, or
-// closed for a shutdown or public holiday (v3.0, §5.15).
+// Create or edit a station (a line). Its one-off day changes (overtime / closed) are set on the Calendar.
 export function StationModal({ station, onClose, onSaved }: { station?: StationDto; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
     name: station?.name ?? '',
@@ -28,22 +26,8 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
       .then(setFactories)
       .catch(() => setFactories([]))
   }, [])
-  const [overrides, setOverrides] = useState<CapacityOverrideDto[]>([])
-  const [newChange, setNewChange] = useState({ date: '', kind: 'closed' as 'closed' | 'overtime', start: '06:00', end: '17:00', note: '', allLines: false })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-
-  const loadOverrides = () => {
-    if (station)
-      stationsApi
-        .getCapacityOverrides(station.id)
-        .then(setOverrides)
-        .catch((e) => setError(errorText(e, 'Could not load the day changes.')))
-  }
-  useEffect(() => {
-    loadOverrides()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [station?.id])
 
   async function save() {
     if (!form.name.trim() || !form.componentType.trim()) return setError('Name and product are required.')
@@ -68,42 +52,6 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
     } finally {
       setSaving(false)
     }
-  }
-
-  async function addChange() {
-    if (!station || !newChange.date) return
-    setError(null)
-    const change = {
-      overrideDate: newChange.date,
-      isClosed: newChange.kind === 'closed',
-      startTime: newChange.kind === 'overtime' ? toTimeOnly(newChange.start) : null,
-      endTime: newChange.kind === 'overtime' ? toTimeOnly(newChange.end) : null,
-      note: newChange.note.trim() || null,
-    }
-    try {
-      if (newChange.allLines) await stationsApi.createForAllLines(change)
-      else await stationsApi.createCapacityOverride(station.id, change)
-      setNewChange({ ...newChange, date: '', note: '', allLines: false })
-      loadOverrides()
-    } catch (e) {
-      setError(errorText(e, 'Could not add the day change.'))
-    }
-  }
-
-  const describe = (o: CapacityOverrideDto) =>
-    o.isClosed
-      ? 'Closed'
-      : `Overtime ${o.startTime ? fromTimeOnly(o.startTime) : 'normal start'}–${o.endTime ? (fromTimeOnly(o.endTime) === '00:00' ? '24:00' : fromTimeOnly(o.endTime)) : 'normal end'}`
-
-  async function removeOverride(id: number) {
-    if (!station) return
-    setError(null)
-    try {
-      await stationsApi.deleteCapacityOverride(station.id, id)
-    } catch (e) {
-      setError(errorText(e, 'Could not remove the day change.'))
-    }
-    loadOverrides()
   }
 
   const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch })
@@ -172,53 +120,9 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
         )}
       </div>
 
-      {station && (
-        <div style={{ marginTop: 20, borderTop: '1px solid var(--border-subtle)', paddingTop: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Day changes</div>
-          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 8 }}>
-            One-off changes to this line's day: overtime (different hours, which can also open a weekend day) or closed (shutdown, public holiday). The schedule re-plans when you add or remove one.
-          </div>
-          {overrides.map((o) => (
-            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 4 }}>
-              <span style={{ width: 110 }}>{o.overrideDate.slice(0, 10)}</span>
-              <span style={{ flex: 1 }}>
-                {describe(o)}
-                {o.note ? ` — ${o.note}` : ''}
-              </span>
-              <button className="btn btn-danger" style={{ padding: '1px 8px', fontSize: 11 }} onClick={() => removeOverride(o.id)}>
-                Remove
-              </button>
-            </div>
-          ))}
-          {overrides.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 6 }}>None</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 6 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={newChange.date} onChange={(e) => setNewChange({ ...newChange, date: e.target.value })} aria-label="Day" />
-              <select value={newChange.kind} onChange={(e) => setNewChange({ ...newChange, kind: e.target.value as 'closed' | 'overtime' })} aria-label="Change">
-                <option value="closed">Closed</option>
-                <option value="overtime">Overtime hours</option>
-              </select>
-              {newChange.kind === 'overtime' && (
-                <>
-                  <TimeInput value={newChange.start} onChange={(start) => setNewChange({ ...newChange, start })} label="Overtime start" />
-                  <span>to</span>
-                  <TimeInput value={newChange.end} onChange={(end) => setNewChange({ ...newChange, end })} label="Overtime end" />
-                </>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input placeholder="Note (e.g. Easter Monday)" style={{ flex: 1, minWidth: 160 }} value={newChange.note} onChange={(e) => setNewChange({ ...newChange, note: e.target.value })} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                <input type="checkbox" checked={newChange.allLines} onChange={(e) => setNewChange({ ...newChange, allLines: e.target.checked })} />
-                All lines (public holiday / site shutdown)
-              </label>
-              <button className="btn btn-secondary" onClick={addChange} disabled={!newChange.date}>
-                Add
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 14 }}>
+        Overtime and closed days (shutdowns, public holidays) are set per line on the Calendar: use the chip on the line's day.
+      </div>
 
       {error && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 12 }}>{error}</div>}
     </Modal>

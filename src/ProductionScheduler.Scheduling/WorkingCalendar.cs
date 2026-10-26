@@ -205,6 +205,29 @@ public static class WorkingCalendar
         return t;
     }
 
+    // Working minutes between two moments on a line: inside each day's window, less breaks. Used to compare
+    // production against the plan in working time, so nights, weekends and breaks don't count.
+    public static double WorkingMinutesBetween(DateTime from, DateTime to, Func<DateOnly, DayWindow?> windowFor, IReadOnlyList<BreakWindow> breaks)
+    {
+        double total = 0;
+        for (var day = from.Date; day < to && day <= from.Date.AddDays(SearchDays * 3); day = day.AddDays(1))
+        {
+            if (windowFor(DateOnly.FromDateTime(day)) is not DayWindow w)
+            {
+                continue;
+            }
+
+            var start = from > day + w.Start ? from - day : w.Start;
+            var end = to < day + w.End ? to - day : w.End;
+            if (end > start)
+            {
+                total += NetMinutes(new DayWindow(start, end), breaks);
+            }
+        }
+
+        return total;
+    }
+
     // Working minutes in one day's window, after breaks.
     public static double NetMinutes(DayWindow? window, IReadOnlyList<BreakWindow> breaks)
     {

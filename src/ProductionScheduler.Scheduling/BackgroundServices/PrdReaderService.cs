@@ -307,12 +307,19 @@ public class PrdReaderService : BackgroundService
         }
     }
 
-    // §5.14 — flags creep when the actual EqA completion rate falls behind the planned rate by
-    // more than CreepThresholdPercent. The schedule does not adjust until an admin approves it.
+    // §5.14 — flags creep when what the PRD files say has been made falls behind the production plan by
+    // more than CreepThresholdPercent. Both sides are measured in the line's WORKING time (its hours, day
+    // changes and breaks), so nights, weekends and lunch don't count as falling behind. The plan is the
+    // job's original one (PlannedStart → PlannedEnd for PlannedEqA), taken from when the job actually
+    // started. The schedule doesn't move for creep until an admin approves it; then the line is pushed back.
     private async Task RunCreepDetectionAsync(AppDbContext db, CancellationToken ct)
     {
         var thresholdPercent = await SettingsReader.GetIntAsync(db, "CreepThresholdPercent", 20, ct);
         var now = _now();
+        var calendar = await WorkCalendarSettings.LoadAsync(db, ct);
+        var changes = (await db.StationCapacityOverrides.AsNoTracking().ToListAsync(ct))
+            .GroupBy(o => o.StationId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyDictionary<DateOnly, StationCapacityOverride>)g.ToDictionary(o => o.OverrideDate));
 
         var inFlightItems = await db.ScheduleItems
             .Where(si => !si.IsArchived && !si.CreepDetected && si.ActualStart != null)
@@ -322,15 +329,15 @@ public class PrdReaderService : BackgroundService
 
         foreach (var item in inFlightItems)
         {
-            var plannedDurationHours = (item.PlannedEnd - item.PlannedStart).TotalHours;
-            if (plannedDurationHours <= 0)
+            var windowFor = calendar.WindowFor(changes.GetValueOrDefault(item.StationId));
+            var plannedMinutes = WorkingCalendar.WorkingMinutesBetween(item.PlannedStart, item.PlannedEnd, windowFor, calendar.Breaks);
+            if (plannedMinutes <= 0)
             {
                 continue;
             }
 
-            var plannedRate = item.PlannedEqA / (decimal)plannedDurationHours; // EqA per hour
-            var elapsedHours = (decimal)(now - item.ActualStart!.Value).TotalHours;
-            var expectedEqA = plannedRate * elapsedHours;
+            var workedMinutes = WorkingCalendar.WorkingMinutesBetween(item.ActualStart!.Value, now, windowFor, calendar.Breaks);
+            var expectedEqA = item.PlannedEqA * (decimal)Math.Min(1, workedMinutes / plannedMinutes);
 
             if (expectedEqA <= 0)
             {

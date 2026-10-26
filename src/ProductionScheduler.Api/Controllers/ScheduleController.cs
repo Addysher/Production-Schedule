@@ -38,6 +38,37 @@ public class ScheduleController : ControllerBase
 
     // Dashboard station cards (§7): for each job running now, the member being made and the one after it,
     // in the design's batch/sequence order.
+    // Is the floor keeping up? For each active line today: the Eq planned to be made by now (today's plan
+    // segments up to now, part of the current one pro rata) against what the PRD files say was made today.
+    [HttpGet("line-progress")]
+    public async Task<ActionResult<List<LineProgressDto>>> LineProgress()
+    {
+        var now = Domain.SiteClock.Now;
+        var today = DateOnly.FromDateTime(now);
+        var start = today.ToDateTime(TimeOnly.MinValue);
+        var segments = await _db.ScheduleSegments.AsNoTracking()
+            .Where(s => s.SegmentDate == today && !s.ScheduleItem.IsArchived)
+            .Select(s => new { s.ScheduleItem.StationId, s.SegmentStart, s.SegmentEnd, s.PlannedEqA })
+            .ToListAsync();
+        var made = await (
+                from m in _db.JobMembers
+                join j in _db.Jobs on m.JobRef equals j.JobRef
+                where m.Done && m.CompletedAt >= start && m.CompletedAt < start.AddDays(1) && j.AssignedStationId != null
+                group (m.CompletedEqA ?? m.EqaValue) by j.AssignedStationId!.Value into g
+                select new { StationId = g.Key, Eqa = g.Sum() })
+            .ToDictionaryAsync(r => r.StationId, r => r.Eqa);
+        var stationIds = await _db.Stations.Where(s => s.IsActive).Select(s => s.Id).ToListAsync();
+
+        return stationIds.Select(id =>
+        {
+            var mine = segments.Where(s => s.StationId == id).ToList();
+            var byNow = mine.Sum(s => s.SegmentEnd <= now ? s.PlannedEqA
+                : s.SegmentStart >= now ? 0
+                : s.PlannedEqA * (decimal)((now - s.SegmentStart).TotalMinutes / (s.SegmentEnd - s.SegmentStart).TotalMinutes));
+            return new LineProgressDto(id, Math.Round(byNow, 1), Math.Round(made.GetValueOrDefault(id), 1), Math.Round(mine.Sum(s => s.PlannedEqA), 1));
+        }).ToList();
+    }
+
     [HttpGet("station-progress")]
     public async Task<ActionResult<List<StationProgressDto>>> StationProgress()
     {
@@ -143,7 +174,7 @@ public class ScheduleController : ControllerBase
             ? si.Segments.OrderBy(s => s.SegmentStart).Select(s => new ScheduleSegmentDto(s.SegmentDate, s.SegmentStart, s.SegmentEnd, s.PlannedEqA)).ToList()
             : new List<ScheduleSegmentDto> { new(si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA) },
         isFrozen,
-        si.Job.BookedDeliveryDate is null || si.Job.DesignStatus != "FinalDesign"); // TBA: pencilled in until booked
+        si.Job.BookedDeliveryDate is null); // TBA: pencilled in until booked
 
     private static string CsvEscape(string? value)
     {

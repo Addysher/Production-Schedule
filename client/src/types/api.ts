@@ -286,6 +286,14 @@ export interface ProductionRowDto {
   eqa: number
 }
 
+// The feedback loop: per line today, the Eq the plan had made by now vs what the PRD files say was made.
+export interface LineProgressDto {
+  stationId: number
+  plannedByNow: number
+  madeToday: number
+  plannedToday: number
+}
+
 // Dashboard: the member being made on a running job, and the one after it (§7).
 export interface StationProgressDto {
   stationId: number

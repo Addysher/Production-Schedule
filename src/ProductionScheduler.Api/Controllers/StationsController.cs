@@ -199,7 +199,20 @@ public class StationsController : ControllerBase
         entity.Note = Blank(request.Note);
     }
 
-    // Readable by every role: the Dashboard shows today's change on each line to Viewers too. Writes stay Admin-only.
+    // Every line's day changes in a date range, for the Calendar. Readable by every role.
+    [HttpGet("capacity-overrides")]
+    public async Task<ActionResult<List<CapacityOverrideDto>>> GetAllCapacityOverrides([FromQuery] DateOnly from, [FromQuery] DateOnly to)
+    {
+        var overrides = await _db.StationCapacityOverrides
+            .AsNoTracking()
+            .Where(o => o.OverrideDate >= from && o.OverrideDate <= to)
+            .OrderBy(o => o.OverrideDate).ThenBy(o => o.StationId)
+            .ToListAsync();
+        return overrides.Select(ToOverrideDto).ToList();
+    }
+
+    // Readable by every role: the Dashboard shows today's change on each line to Viewers too. Writes are
+    // Admin and Supervisor (set from the Calendar).
     [HttpGet("{id:int}/capacity-overrides")]
     public async Task<ActionResult<List<CapacityOverrideDto>>> GetCapacityOverrides(int id)
     {
@@ -212,7 +225,7 @@ public class StationsController : ControllerBase
     }
 
     [HttpPost("{id:int}/capacity-overrides")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Supervisor")] // planned on the Calendar by supervisors too
     public async Task<ActionResult<CapacityOverrideDto>> CreateCapacityOverride(int id, UpsertCapacityOverrideRequest request)
     {
         if (!await _db.Stations.AnyAsync(s => s.Id == id))
@@ -244,7 +257,7 @@ public class StationsController : ControllerBase
     // A public holiday or site shutdown: the same change on every active line at once (replacing any change
     // those lines already had that day).
     [HttpPost("capacity-overrides/all-lines")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Supervisor")] // planned on the Calendar by supervisors too
     public async Task<ActionResult<List<CapacityOverrideDto>>> CreateForAllLines(UpsertCapacityOverrideRequest request)
     {
         if (await OverrideProblemAsync(request) is { } problem)
@@ -277,7 +290,7 @@ public class StationsController : ControllerBase
     }
 
     [HttpPut("{id:int}/capacity-overrides/{overrideId:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Supervisor")] // planned on the Calendar by supervisors too
     public async Task<ActionResult<CapacityOverrideDto>> UpdateCapacityOverride(int id, int overrideId, UpsertCapacityOverrideRequest request)
     {
         var entity = await _db.StationCapacityOverrides.FirstOrDefaultAsync(o => o.Id == overrideId && o.StationId == id);
@@ -306,7 +319,7 @@ public class StationsController : ControllerBase
     }
 
     [HttpDelete("{id:int}/capacity-overrides/{overrideId:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Supervisor")] // planned on the Calendar by supervisors too
     public async Task<IActionResult> DeleteCapacityOverride(int id, int overrideId)
     {
         var entity = await _db.StationCapacityOverrides.FirstOrDefaultAsync(o => o.Id == overrideId && o.StationId == id);

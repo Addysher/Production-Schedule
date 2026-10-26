@@ -148,7 +148,8 @@ public class ScheduleGenerationService : IScheduleGenerationService
                 .ToListAsync(ct))
             .Where(j => !unapprovedCreepEnds.ContainsKey(j.JobRef))
             .ToList();
-        static bool IsBooked(Job j) => j.BookedDeliveryDate is not null && j.DesignStatus == "FinalDesign";
+        // Booked = the office has entered a Booked Delivery date (quote or final design): it gets a firm place.
+        static bool IsBooked(Job j) => j.BookedDeliveryDate is not null;
         var notPencilled = calendar.PencilTbaJobs ? [] : candidates.Where(j => !IsBooked(j)).ToList();
         var queued = candidates.Except(notPencilled).ToList();
 
@@ -168,7 +169,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
                 return job.BookedDeliveryDate!.Value;
             }
 
-            var rough = job.EstBookedDeliveryDate ?? job.ExpectedDeliveryDate;
+            var rough = job.ExpectedDeliveryDate ?? job.EstBookedDeliveryDate;
             return rough is { } r && r >= today ? r : today.AddDays(14);
         }
 
@@ -298,19 +299,11 @@ public class ScheduleGenerationService : IScheduleGenerationService
         foreach (var job in pinnedFirst)
         {
             var due = DueOf(job);
-            var latestFinish = calendar.LatestFinish(due);
             var notBefore = generatedAt; // each line then moves on to its own next working moment (incl. overtime)
-            if (IsEffectivelyPinned(job) && job.ManualScheduleDate is { } pinDay)
+            var pinned = IsEffectivelyPinned(job) && job.ManualScheduleDate is not null;
+            if (pinned && job.ManualScheduleDate!.Value.ToDateTime(TimeOnly.MinValue) > notBefore)
             {
-                // A pin is where someone put it: the delivery window's earliest start doesn't move it.
-                if (pinDay.ToDateTime(TimeOnly.MinValue) > notBefore)
-                {
-                    notBefore = pinDay.ToDateTime(TimeOnly.MinValue);
-                }
-            }
-            else if (calendar.EarliestStart(due) is { } earliest && earliest > notBefore)
-            {
-                notBefore = earliest;
+                notBefore = job.ManualScheduleDate.Value.ToDateTime(TimeOnly.MinValue); // a pin is where someone put it
             }
 
             foreach (var predecessor in allEdges.Where(e => e.SuccessorJobRef == job.JobRef).Select(e => e.PredecessorJobRef))
@@ -326,7 +319,17 @@ public class ScheduleGenerationService : IScheduleGenerationService
             (Line Line, DateTime Start, DateTime End)? chosen = null;
             foreach (var line in LinesFor(job))
             {
-                var (start, end) = FirstFit(line, eqa, notBefore > line.FrozenUntil ? notBefore : line.FrozenUntil, breaks);
+                // The delivery window counts this line's working days, so its closures (shutdowns, public
+                // holidays) don't count as days the job could have been made.
+                bool LineWorks(DateOnly d) => line.WindowFor(d) is not null;
+                var latestFinish = calendar.LatestFinish(due, LineWorks);
+                var from = notBefore > line.FrozenUntil ? notBefore : line.FrozenUntil;
+                if (!pinned && calendar.EarliestStart(due, LineWorks) is { } earliest && earliest > from)
+                {
+                    from = earliest;
+                }
+
+                var (start, end) = FirstFit(line, eqa, from, breaks);
                 if (end <= latestFinish)
                 {
                     chosen = (line, start, end);

@@ -23,7 +23,7 @@ public static class FreezeWindow
             .Include(si => si.Segments)
             // Only called-up (booked) work is frozen: a TBA job can't be made yet, so it stays movable (v3.0).
             .Where(si => !si.IsArchived && si.ActualStart == null && !si.Job.IsArchived && NotStarted.Contains(si.Job.Status)
-                && si.Job.BookedDeliveryDate != null && si.Job.DesignStatus == "FinalDesign")
+                && si.Job.BookedDeliveryDate != null)
             .AsNoTracking()
             .ToListAsync(ct);
 

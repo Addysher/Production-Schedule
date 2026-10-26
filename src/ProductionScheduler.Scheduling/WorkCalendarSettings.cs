@@ -72,13 +72,15 @@ public sealed record WorkCalendarSettings(
     // What a line can make on a day: its EqA per hour × that day's working hours after breaks.
     public double DailyTargetEqa(double eqaPerHour, DayWindow? window) => eqaPerHour * WorkingCalendar.NetMinutes(window, Breaks) / 60;
 
-    // Steps back `count` working days from `day` (0 = the day itself).
-    public DateOnly WorkingDaysBefore(DateOnly day, int count)
+    // Steps back `count` working days from `day` (0 = the day itself). `isWorkingDay` defaults to the site's
+    // working days; a line passes its own (so its closures don't count).
+    public DateOnly WorkingDaysBefore(DateOnly day, int count, Func<DateOnly, bool>? isWorkingDay = null)
     {
-        for (var counted = 0; counted < count && WorkingDays.Count > 0;)
+        isWorkingDay ??= d => WorkingDays.Contains((int)d.DayOfWeek);
+        for (int counted = 0, guard = 0; counted < count && guard < 400; guard++)
         {
             day = day.AddDays(-1);
-            if (WorkingDays.Contains((int)day.DayOfWeek))
+            if (isWorkingDay(day))
             {
                 counted++;
             }
@@ -88,10 +90,12 @@ public sealed record WorkCalendarSettings(
     }
 
     // The latest a job due on `due` should finish: the end of the day LeadDaysMin working days before it.
-    public DateTime LatestFinish(DateOnly due) => WorkingDaysBefore(due, LeadDaysMin).ToDateTime(TimeOnly.MinValue).AddDays(1);
+    public DateTime LatestFinish(DateOnly due, Func<DateOnly, bool>? isWorkingDay = null) =>
+        WorkingDaysBefore(due, LeadDaysMin, isWorkingDay).ToDateTime(TimeOnly.MinValue).AddDays(1);
 
     // The earliest it may start: the start of the day LeadDaysMax working days before it (null = no limit).
-    public DateTime? EarliestStart(DateOnly due) => LeadDaysMax > 0 ? WorkingDaysBefore(due, LeadDaysMax).ToDateTime(TimeOnly.MinValue) : null;
+    public DateTime? EarliestStart(DateOnly due, Func<DateOnly, bool>? isWorkingDay = null) =>
+        LeadDaysMax > 0 ? WorkingDaysBefore(due, LeadDaysMax, isWorkingDay).ToDateTime(TimeOnly.MinValue) : null;
 
     public static async Task<WorkCalendarSettings> LoadAsync(AppDbContext db, CancellationToken ct = default)
     {

@@ -75,10 +75,14 @@ public class ScenarioD_RoleEnforcementTests
     private static readonly HashSet<string> OpenToSupervisor = new(StringComparer.OrdinalIgnoreCase)
     {
         "api/jobs/1/schedule-manually",
+        // v3.0: supervisors plan a line's overtime / closed days on the Calendar.
+        "api/stations/1/capacity-overrides",
+        "api/stations/1/capacity-overrides/1",
+        "api/stations/capacity-overrides/all-lines",
     };
 
     [Fact]
-    public async Task Supervisor_IsForbiddenOnEveryMutatingEndpointExceptMovingJobs()
+    public async Task Supervisor_IsForbiddenOnEveryMutatingEndpointExceptMovingJobsAndLineDayChanges()
     {
         var admin = await _f.ClientAsync();
         var create = await admin.PostAsJsonAsync("/api/users", new { username = "supervisor_d", password = "Super123!", role = "Supervisor" });

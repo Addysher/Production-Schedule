@@ -5,7 +5,7 @@ import { jobsApi } from '../api/jobs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
 import { isMovableStatus } from '../auth/permissions'
-import type { CalendarSettingsDto, JobDetailDto, JobSummaryDto, ScheduleItemDto, ScheduleSegmentDto, StationDto, UpdateJobRequest } from '../types/api'
+import type { CapacityOverrideDto, CalendarSettingsDto, JobDetailDto, JobSummaryDto, ScheduleItemDto, ScheduleSegmentDto, StationDto, UpdateJobRequest } from '../types/api'
 import { localIsoDate } from '../utils/dates'
 import { CalendarBlock, LockIcon } from '../components/CalendarBlock'
 import { JobDetailPopup } from '../components/JobDetailPopup'
@@ -13,6 +13,7 @@ import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
 import { StationModal } from '../components/StationModal'
 import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { JobEditModal } from '../components/JobEditModal'
+import { DayChangeModal, describeDayChange } from '../components/DayChangeModal'
 import { errorText } from '../components/Modal'
 import { approveForCuttingWithConfirm, canApproveForCutting } from '../components/sawFiles'
 import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
@@ -23,6 +24,8 @@ const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour:
 
 // Hatching for days inside the freeze window.
 const FROZEN_BG = 'repeating-linear-gradient(135deg, transparent, transparent 7px, var(--divider-faint) 7px, var(--divider-faint) 9px)'
+// A line closed for the day (shutdown / public holiday): greyed out.
+const CLOSED_BG = 'repeating-linear-gradient(45deg, color-mix(in srgb, #ef4444 6%, transparent), color-mix(in srgb, #ef4444 6%, transparent) 8px, transparent 8px, transparent 16px)'
 const NOW_LINE_REFRESH_MS = 15 * 60 * 1000 // §request: the "now" line updates on a 15-minute interval
 
 const hoursOf = (hhmm: string) => {
@@ -65,6 +68,14 @@ interface DragPayload {
 export function CalendarView() {
   const { user } = useAuth()
   const [mode, setMode] = useState<'day' | 'week' | 'month'>('day')
+  // Week view normally shows working days only; weekends can be shown to plan overtime on them.
+  const [showWeekends, setShowWeekends] = useState(() => {
+    try {
+      return localStorage.getItem('calendar.showWeekends') === 'true'
+    } catch {
+      return false
+    }
+  })
   const [anchorDate, setAnchorDate] = useState(() => new Date())
   const [stations, setStations] = useState<StationDto[]>([])
   const [items, setItems] = useState<ScheduleItemDto[]>([])
@@ -74,6 +85,9 @@ export function CalendarView() {
   const [selectedJob, setSelectedJob] = useState<JobDetailDto | null>(null)
   const [pinning, setPinning] = useState<JobDetailDto | null>(null)
   const [editing, setEditing] = useState<JobDetailDto | null>(null)
+  // One-off changes to a line's day (overtime / closed), set right here on the Calendar (v3.0).
+  const [dayChanges, setDayChanges] = useState<CapacityOverrideDto[]>([])
+  const [editingDay, setEditingDay] = useState<{ station: StationDto; date: Date } | null>(null)
   const [showAddStation, setShowAddStation] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
   const [dragError, setDragError] = useState<string | null>(null)
@@ -99,6 +113,52 @@ export function CalendarView() {
     setJobs(jobList)
     setCalendar(calendarSettings)
     setProducedToday(Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])))
+  }
+
+  async function loadDayChanges() {
+    const from = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate() - 45)
+    const to = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate() + 60)
+    setDayChanges(await stationsApi.getDayChanges(localIsoDate(from), localIsoDate(to)))
+  }
+
+  useEffect(() => {
+    loadDayChanges().catch((e) => setDragError(errorText(e, 'Could not load the line day changes.')))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorDate])
+
+  const dayChangeFor = (stationId: number, d: Date) => dayChanges.find((c) => c.stationId === stationId && c.overrideDate.slice(0, 10) === localIsoDate(d))
+  const canEditDays = !!user?.canReschedule // Admin and Supervisor
+
+  // The chip on a line's day: what's changed, and (for Admin/Supervisor) the way in to change it.
+  function DayChip({ station, date }: { station: StationDto; date: Date }) {
+    const change = dayChangeFor(station.id, date)
+    if (!change && !canEditDays) return null
+    return (
+      <button
+        type="button"
+        onClick={() => canEditDays && setEditingDay({ station, date })}
+        title={change ? describeDayChange(change) : 'Set overtime or close this line for the day'}
+        style={{
+          display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          border: change ? `1px solid ${change.isClosed ? '#ef4444' : '#f59e0b'}` : '1px dashed var(--border-subtle)',
+          background: change ? (change.isClosed ? 'color-mix(in srgb, #ef4444 12%, transparent)' : 'color-mix(in srgb, #f59e0b 14%, transparent)') : 'transparent',
+          color: change ? 'var(--text-primary)' : 'var(--text-faint)',
+          borderRadius: 4,
+          fontSize: 10,
+          fontWeight: change ? 700 : 400,
+          padding: '1px 5px',
+          marginBottom: 3,
+          cursor: canEditDays ? 'pointer' : 'default',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {change ? describeDayChange(change) : '+ day change'}
+      </button>
+    )
   }
 
   // After a change made here: reload, and let the sidebar's late count follow.
@@ -164,9 +224,9 @@ export function CalendarView() {
       const d = new Date(monday)
       d.setDate(d.getDate() + i)
       return d
-    }).filter((d) => workingDays.includes(d.getDay()) || daysWithWork.has(localIsoDate(d)))
+    }).filter((d) => showWeekends || workingDays.includes(d.getDay()) || daysWithWork.has(localIsoDate(d)) || dayChanges.some((c) => c.overrideDate.slice(0, 10) === localIsoDate(d)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorDate, workingDays, items])
+  }, [anchorDate, workingDays, items, showWeekends, dayChanges])
 
   // Always the full Mon-Sun grid, padded into neighbouring months — a traditional month calendar,
   // not filtered to working days, so non-working days still show as (empty) cells in context.
@@ -305,6 +365,23 @@ export function CalendarView() {
               <button className="btn btn-secondary" onClick={() => setAnchorDate(new Date())}>
                 Today
               </button>
+              {mode === 'week' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={showWeekends}
+                    onChange={(e) => {
+                      setShowWeekends(e.target.checked)
+                      try {
+                        localStorage.setItem('calendar.showWeekends', String(e.target.checked))
+                      } catch {
+                        // not remembered this time
+                      }
+                    }}
+                  />
+                  Show weekends
+                </label>
+              )}
               <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--brand-primary)' }}>
                 {(['day', 'week', 'month'] as const).map((m) => (
                   <button
@@ -421,13 +498,18 @@ export function CalendarView() {
                     >
                       {station.name}
                     </div>
+                    {mode === 'day' && (
+                      <div style={{ padding: '3px 4px 0' }}>
+                        <DayChip station={station} date={anchorDate} />
+                      </div>
+                    )}
 
                     {mode === 'day' ? (
                       <div
                         style={{
                           position: 'relative',
                           height: hours.length * ROW_HEIGHT,
-                          background: isFrozenDay(anchorDate) ? FROZEN_BG : undefined,
+                          background: dayChangeFor(station.id, anchorDate)?.isClosed ? CLOSED_BG : isFrozenDay(anchorDate) ? FROZEN_BG : undefined,
                           ...dropZone(`d-${station.id}`).style,
                         }}
                         onDragOver={dropZone(`d-${station.id}`).onDragOver}
@@ -505,13 +587,14 @@ export function CalendarView() {
                               borderBottom: '1px solid var(--divider-faint)',
                               padding: 2,
                               overflow: 'auto',
-                              background: isFrozenDay(d) ? FROZEN_BG : undefined,
+                              background: dayChangeFor(station.id, d)?.isClosed ? CLOSED_BG : isFrozenDay(d) ? FROZEN_BG : undefined,
                               ...dropZone(`w-${station.id}-${d.toISOString()}`).style,
                             }}
                             data-drop={`w-${station.id}-${localIsoDate(d)}`}
                             onDragOver={dropZone(`w-${station.id}-${d.toISOString()}`).onDragOver}
                             onDrop={(e) => onDropOnStationDay(e, station, d)}
                           >
+                            <DayChip station={station} date={d} />
                             {blocksForStationDay(station.id, d).map(({ item, segment }, idx) => (
                               <div key={`${item.id}-${idx}`} draggable={canDrag(item)} onDragStart={(e) => onBlockDragStart(e, item)} onDragEnd={() => setDropTarget(null)} style={{ cursor: canDrag(item) ? 'grab' : undefined }}>
                                 <CalendarBlock item={item} segment={segment} isLate={isLateFor(item.jobRef)} isAtRisk={isAtRiskFor(item.jobRef)} onDoubleClick={() => openJob(item.jobRef)} compact />
@@ -612,6 +695,21 @@ export function CalendarView() {
         />
       )}
       {editing && <JobEditModal job={editing} onClose={() => setEditing(null)} onSave={saveEdit} />}
+      {editingDay && (
+        <DayChangeModal
+          station={editingDay.station}
+          date={editingDay.date}
+          existing={dayChangeFor(editingDay.station.id, editingDay.date)}
+          dayStart={calendar.dayStart}
+          dayEnd={calendar.dayEnd}
+          onClose={() => setEditingDay(null)}
+          onSaved={() => {
+            setEditingDay(null)
+            loadDayChanges().catch(() => {})
+            reloadAfterChange()
+          }}
+        />
+      )}
       {showAddStation && (
         <StationModal
           onClose={() => setShowAddStation(false)}

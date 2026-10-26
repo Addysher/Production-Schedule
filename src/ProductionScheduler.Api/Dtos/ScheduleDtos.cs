@@ -24,4 +24,7 @@ public record CompletionRowDto(DateOnly Date, int Completed, int CompletedLate, 
 
 public record NotificationSummaryDto(int NewJobs, int Errors, DateTime ServerNow);
 
+// The feedback loop (v3.0): per line today, the Eq the plan had made by now vs what the PRD files say was made.
+public record LineProgressDto(int StationId, decimal PlannedByNow, decimal MadeToday, decimal PlannedToday);
+
 public record StationProgressDto(int StationId, string JobRef, string? CurrentMemberId, string? NextMemberId, int MembersDone, int MembersTotal);
