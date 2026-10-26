@@ -923,9 +923,8 @@ RawFilesPath (drop) ─► RawFilesPath\_bundling\{JobRef} ─(every member has 
 ```
 
 **File names:**
-- Files are named `{JobRef}{MemberID}.mme`. Member IDs are usually 3 characters (`E17`), but real floor designs also have 4-character ones (`P05A`), so the last-3 rule can't be relied on.
-- **JobRef** = the longest known job ref that the file name starts with. If the job isn't imported yet, it is the job-ref shape (digits then three letters, e.g. `58749MPF`). Only failing both is the old rule used (minus the last 3 characters). Files staged under a guessed ref move to the right job once it is imported.
-- **Member ID** = whatever follows the JobRef.
+- **Sapphire's rule:** a saw file is always named `{JobRef}{MemberID}.mme` with a **3-character** member ID. So the **JobRef** (and the bundle folder's name) is the file name minus its last 3 characters (`59778MWFE17` → `59778MWF`), and the **member ID** is those 3 characters.
+- SCH designs can list members whose ID isn't 3 characters (e.g. `P05A` in a real floor design). These can't be matched to a file by name, so completeness only *counts* them: the bundle needs one more file for each of them. **To confirm with a real job:** how Sapphire names the saw file for such a member.
 
 **How files move:**
 - A file is only picked up once it has been unchanged for `SchFileSettleSeconds` (it may still be being written).

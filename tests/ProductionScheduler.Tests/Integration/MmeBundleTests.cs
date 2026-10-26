@@ -155,14 +155,18 @@ public class MmeBundleTests
     }
 
     [Fact]
-    public async Task MembersWithFourCharacterIds_StillCompleteTheirBundle()
+    public async Task AMemberWhoseIdIsntThreeCharacters_IsCountedNotMatched()
     {
+        // Real floor designs list members like P05A; the saw file can only carry 3 characters, so such a
+        // member needs one more file than the 3-character members account for.
         var f = await UseFreshFoldersAsync();
         var jobRef = NewRef();
         await AddJobAsync(jobRef, "P05", "P05A");
         await DropAsync(f, jobRef, "P05");
-        await DropAsync(f, jobRef, "P05A");
+        await _f.PollMmeAsync();
+        Assert.Equal("bundling", (await JobAsync(jobRef)).SawBundleStatus);
 
+        await DropAsync(f, jobRef, "P5A");
         await _f.PollMmeAsync();
 
         Assert.Equal(2, Directory.GetFiles(Path.Combine(f.Waiting, jobRef)).Length);
