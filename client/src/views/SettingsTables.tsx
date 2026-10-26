@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { jobTypesApi, shiftsApi } from '../api/admin'
+import { factoriesApi, jobTypesApi, shiftsApi } from '../api/admin'
 import { stationsApi } from '../api/stations'
-import type { JobTypeDto, ShiftDto, StationDto } from '../types/api'
+import type { FactoryDto, JobTypeDto, ShiftDto, StationDto } from '../types/api'
 import { JobTypeModal } from '../components/JobTypeModal'
 import { ShiftModal } from '../components/ShiftModal'
 import { StationModal } from '../components/StationModal'
@@ -28,6 +28,10 @@ export function StationsSection() {
   const [editing, setEditing] = useState<StationDto | 'new' | null>(null)
 
   const { rows, load, errorLine } = useRows(() => stationsApi.getAll(), 'the stations')
+  const [factories, setFactories] = useState<FactoryDto[]>([])
+  useEffect(() => {
+    factoriesApi.getAll().then(setFactories).catch(() => setFactories([]))
+  }, [])
   useEffect(() => {
     load()
   }, [])
@@ -45,6 +49,7 @@ export function StationsSection() {
           <tr>
             <th>Name</th>
             <th>Product</th>
+            <th>Factory</th>
             <th>PRD folder</th>
             <th>Archive folder</th>
             <th>Daily EqA</th>
@@ -57,6 +62,7 @@ export function StationsSection() {
             <tr key={s.id} style={{ opacity: s.isActive ? 1 : 0.55 }}>
               <td>{s.name}</td>
               <td>{s.componentType}</td>
+              <td>{factories.find((f) => f.id === s.factoryId)?.name ?? '—'}</td>
               <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.uncPath ?? '—'}</td>
               <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.archivePath ?? '—'}</td>
               <td>{s.dailyEqATarget ?? '—'}</td>
@@ -70,7 +76,7 @@ export function StationsSection() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
+              <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                 No stations yet
               </td>
             </tr>

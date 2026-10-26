@@ -25,7 +25,8 @@ public class UsersController : ControllerBase
 
     // Role names are matched exactly by [Authorize(Roles = ...)], so anything else would create an
     // account that can sign in but can do nothing.
-    private static readonly string[] ValidRoles = ["Admin", "Supervisor", "Viewer"];
+    // Kiosk: a factory-floor display account — it only sees the kiosk page (and, like Viewer, can't change anything).
+    private static readonly string[] ValidRoles = ["Admin", "Supervisor", "Viewer", "Kiosk"];
 
     private static string? InvalidRole(string role) =>
         ValidRoles.Contains(role) ? null : $"Role must be one of: {string.Join(", ", ValidRoles)}.";

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { factoriesApi } from '../api/admin'
 import { stationsApi } from '../api/stations'
-import type { CapacityOverrideDto, StationDto } from '../types/api'
+import type { CapacityOverrideDto, FactoryDto, StationDto } from '../types/api'
 import { Field, Modal, errorText } from './Modal'
 import { ProductSelect } from './ProductSelect'
 
@@ -14,7 +15,16 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
     dailyEqATarget: station?.dailyEqATarget?.toString() ?? '',
     displayOrder: station?.displayOrder?.toString() ?? '0',
     isActive: station?.isActive ?? true,
+    factoryId: station?.factoryId?.toString() ?? '',
   })
+  const [factories, setFactories] = useState<FactoryDto[]>([])
+
+  useEffect(() => {
+    factoriesApi
+      .getAll()
+      .then(setFactories)
+      .catch(() => setFactories([]))
+  }, [])
   const [overrides, setOverrides] = useState<CapacityOverrideDto[]>([])
   const [newOverride, setNewOverride] = useState({ date: '', target: '' })
   const [error, setError] = useState<string | null>(null)
@@ -43,6 +53,7 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
       archivePath: form.archivePath.trim() || null,
       dailyEqATarget: form.dailyEqATarget === '' ? null : Number(form.dailyEqATarget),
       displayOrder: Number(form.displayOrder) || 0,
+      factoryId: form.factoryId === '' ? null : Number(form.factoryId),
     }
     try {
       if (station) await stationsApi.update(station.id, { ...body, isActive: form.isActive })
@@ -115,6 +126,18 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
         </div>
         <Field label="Daily EqA target" hint="Blank = no daily limit">
           <input type="number" style={{ width: '100%' }} value={form.dailyEqATarget} onChange={(e) => set({ dailyEqATarget: e.target.value })} />
+        </Field>
+        <Field label="Factory" hint="Which factory's kiosk display shows this station">
+          <select style={{ width: '100%' }} value={form.factoryId} onChange={(e) => set({ factoryId: e.target.value })}>
+            <option value="">(none)</option>
+            {factories
+              .filter((f) => f.isActive || String(f.id) === form.factoryId)
+              .map((f) => (
+                <option key={f.id} value={String(f.id)}>
+                  {f.name}
+                </option>
+              ))}
+          </select>
         </Field>
         <Field label="Display order">
           <input type="number" style={{ width: '100%' }} value={form.displayOrder} onChange={(e) => set({ displayOrder: e.target.value })} />

@@ -20,7 +20,7 @@ public class StationsController : ControllerBase
     }
 
     private static StationDto ToDto(Station s) =>
-        new(s.Id, s.Name, s.ComponentType, s.UncPath, s.IsActive, s.DisplayOrder, s.DailyEqATarget, s.ArchivePath);
+        new(s.Id, s.Name, s.ComponentType, s.UncPath, s.IsActive, s.DisplayOrder, s.DailyEqATarget, s.ArchivePath, s.FactoryId);
 
     // Read access is open to any authenticated user — the calendar and dashboard (Viewer-visible)
     // render station columns/cards, even though station management itself is Admin-only.
@@ -47,6 +47,11 @@ public class StationsController : ControllerBase
             return BadRequest(unknown);
         }
 
+        if (request.FactoryId is { } factoryId && !await _db.Factories.AnyAsync(f => f.Id == factoryId))
+        {
+            return BadRequest($"Factory {factoryId} doesn't exist.");
+        }
+
         var station = new Station
         {
             Name = request.Name,
@@ -55,6 +60,7 @@ public class StationsController : ControllerBase
             DisplayOrder = request.DisplayOrder,
             DailyEqATarget = request.DailyEqATarget,
             ArchivePath = request.ArchivePath,
+            FactoryId = request.FactoryId,
             IsActive = true
         };
         _db.Stations.Add(station);
@@ -77,6 +83,11 @@ public class StationsController : ControllerBase
             return BadRequest(unknown);
         }
 
+        if (request.FactoryId is { } factoryId && !await _db.Factories.AnyAsync(f => f.Id == factoryId))
+        {
+            return BadRequest($"Factory {factoryId} doesn't exist.");
+        }
+
         station.Name = request.Name;
         station.ComponentType = request.ComponentType;
         station.UncPath = request.UncPath;
@@ -84,6 +95,7 @@ public class StationsController : ControllerBase
         station.DisplayOrder = request.DisplayOrder;
         station.DailyEqATarget = request.DailyEqATarget;
         station.ArchivePath = request.ArchivePath;
+        station.FactoryId = request.FactoryId;
         await _db.SaveChangesAsync();
         return ToDto(station);
     }

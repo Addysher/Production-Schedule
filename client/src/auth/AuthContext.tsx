@@ -4,7 +4,7 @@ import { setAuthToken, setUnauthorizedHandler } from '../api/client'
 import type { Role } from '../types/api'
 import { canRescheduleRole } from './permissions'
 
-interface AuthState {
+export interface AuthState {
   username: string
   role: Role
   isAdmin: boolean

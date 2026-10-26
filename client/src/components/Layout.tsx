@@ -16,6 +16,7 @@ const navItems = [
   { to: '/jobs', label: 'Jobs' },
   { to: '/quotes', label: 'Quotes' },
   { to: '/reports', label: 'Reports' },
+  { to: '/kiosk', label: 'Kiosk display' },
 ]
 
 const POLL_MS = 30000

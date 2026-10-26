@@ -9,6 +9,7 @@ export interface UpsertStationRequest {
   displayOrder: number
   dailyEqATarget: number | null
   archivePath: string | null
+  factoryId: number | null
 }
 
 export const stationsApi = {

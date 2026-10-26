@@ -96,6 +96,30 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.ToTable("BatchcutWatchPaths", (string)null);
                 });
 
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.Factory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Factories", (string)null);
+                });
+
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.Job", b =>
                 {
                     b.Property<int>("Id")
@@ -211,7 +235,8 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("SawBundleStatus")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<int>("SawFileCount")
                         .HasColumnType("int");
@@ -765,6 +790,9 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("int");
 
+                    b.Property<int?>("FactoryId")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -778,6 +806,8 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasColumnType("nvarchar(500)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FactoryId");
 
                     b.HasIndex("ComponentType", "IsActive")
                         .HasDatabaseName("IX_Stations_ComponentType");
@@ -1007,6 +1037,16 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.Navigation("Shift");
                 });
 
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.Station", b =>
+                {
+                    b.HasOne("ProductionScheduler.Domain.Entities.Factory", "Factory")
+                        .WithMany("Stations")
+                        .HasForeignKey("FactoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Factory");
+                });
+
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.StationCapacityOverride", b =>
                 {
                     b.HasOne("ProductionScheduler.Domain.Entities.Station", "Station")
@@ -1021,6 +1061,11 @@ namespace ProductionScheduler.Infrastructure.Migrations
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.BatchcutWatchPath", b =>
                 {
                     b.Navigation("Events");
+                });
+
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.Factory", b =>
+                {
+                    b.Navigation("Stations");
                 });
 
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.Job", b =>

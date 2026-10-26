@@ -68,7 +68,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
                      {
                          "ScheduleItems", "JobMembers", "Precedences", "BatchcutEvents", "MaintenanceLogs", "PrdReadState",
                          "StationCapacityOverrides", "Jobs", "Operators", "ShiftBreaks", "Shifts", "SetupTimes",
-                         "BatchcutWatchPaths", "Products", "JobTypes", "Stations", "Settings", "Users",
+                         "BatchcutWatchPaths", "Products", "JobTypes", "Stations", "Factories", "Settings", "Users",
                      })
             {
                 await db.Database.ExecuteSqlRawAsync($"DELETE FROM [{table}]");

@@ -30,6 +30,7 @@ public class JobConfiguration : IEntityTypeConfiguration<Job>
         b.Property(x => x.MpsSourcePath).HasMaxLength(500);
         b.Property(x => x.InvoiceNumber).HasMaxLength(100);
         b.Property(x => x.Status).HasMaxLength(20).IsRequired();
+        b.Property(x => x.SawBundleStatus).HasMaxLength(20);
 
         b.Property(x => x.TotalEqA).HasPrecision(10, 4);
         b.Property(x => x.CompletedEqA).HasPrecision(10, 4);

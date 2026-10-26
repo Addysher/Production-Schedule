@@ -1,4 +1,5 @@
-export type Role = 'Admin' | 'Supervisor' | 'Viewer'
+// Kiosk: a factory-floor display account that only sees the kiosk page.
+export type Role = 'Admin' | 'Supervisor' | 'Viewer' | 'Kiosk'
 
 export interface LoginResponse {
   token: string
@@ -15,6 +16,15 @@ export interface StationDto {
   displayOrder: number
   dailyEqATarget: number | null
   archivePath: string | null
+  factoryId: number | null
+}
+
+// v3.0: groups stations for the kiosk display; scheduling ignores it.
+export interface FactoryDto {
+  id: number
+  name: string
+  isActive: boolean
+  stationIds: number[]
 }
 
 export interface CapacityOverrideDto {

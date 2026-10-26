@@ -16,12 +16,14 @@ import type { BatchcutEventDto } from '../types/logs'
 import { JobTypesSection, ShiftsSection, StationsSection } from './SettingsTables'
 import { errorText } from '../components/Modal'
 import { EmailSettingsSection } from './EmailSettings'
+import { FactoriesSection } from './FactoriesSection'
 import { applyTheme, readThemeSettings, DEFAULT_PRIMARY_COLOR, DEFAULT_SECONDARY_COLOR, type ThemeMode } from '../theme/applyTheme'
 
-type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'email' | 'products' | 'batchpaths' | 'batchlog'
+type Tab = 'factories' | 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'email' | 'products' | 'batchpaths' | 'batchlog'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'products', label: 'Products' },
+  { key: 'factories', label: 'Factories' },
   { key: 'stations', label: 'Stations' },
   { key: 'jobtypes', label: 'Job Types' },
   { key: 'shifts', label: 'Shifts' },
@@ -55,6 +57,7 @@ export function SettingsView() {
         ))}
       </div>
 
+      {tab === 'factories' && <FactoriesSection />}
       {tab === 'stations' && <StationsSection />}
       {tab === 'jobtypes' && <JobTypesSection />}
       {tab === 'shifts' && <ShiftsSection />}
@@ -141,6 +144,7 @@ function UsersSection() {
                   <option value="Viewer">Viewer</option>
                   <option value="Supervisor">Supervisor</option>
                   <option value="Admin">Admin</option>
+                  <option value="Kiosk">Kiosk (display only)</option>
                 </select>
               </td>
               <td>{u.isActive ? 'Yes' : 'No'}</td>
@@ -164,6 +168,7 @@ function UsersSection() {
                 <option value="Viewer">Viewer</option>
                 <option value="Supervisor">Supervisor</option>
                 <option value="Admin">Admin</option>
+                <option value="Kiosk">Kiosk (display only)</option>
               </select>
             </td>
             <td colSpan={2}>

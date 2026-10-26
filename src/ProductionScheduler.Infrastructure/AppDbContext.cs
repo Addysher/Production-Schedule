@@ -28,6 +28,7 @@ public class AppDbContext : DbContext
     public DbSet<BatchcutWatchPath> BatchcutWatchPaths => Set<BatchcutWatchPath>();
     public DbSet<BatchcutEvent> BatchcutEvents => Set<BatchcutEvent>();
     public DbSet<JobType> JobTypes => Set<JobType>();
+    public DbSet<Factory> Factories => Set<Factory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

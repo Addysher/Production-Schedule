@@ -13,5 +13,8 @@ public class Station
     public decimal? DailyEqATarget { get; set; }
     public string? ArchivePath { get; set; } // used by Nightly Task 4 (MPS archive)
 
+    public int? FactoryId { get; set; } // v3.0: which factory's kiosk shows it; NULL = not assigned
+    public Factory? Factory { get; set; }
+
     public ICollection<StationCapacityOverride> CapacityOverrides { get; set; } = new List<StationCapacityOverride>();
 }

@@ -7,6 +7,7 @@ import type {
   SettingDto,
   ProductDto,
   BatchcutWatchPathDto,
+  FactoryDto,
 } from '../types/api'
 
 export const jobTypesApi = {
@@ -83,4 +84,11 @@ export const emailApi = {
   reports: () => apiClient.get<EmailReportStatusDto[]>('/email/reports').then((r) => r.data),
   preview: (key: string) => apiClient.get<string>(`/email/reports/${key}/preview`, { responseType: 'text' }).then((r) => r.data),
   sendNow: (key: string) => apiClient.post<{ sent: boolean; message: string }>(`/email/reports/${key}/send-now`).then((r) => r.data),
+}
+
+export const factoriesApi = {
+  getAll: () => apiClient.get<FactoryDto[]>('/factories').then((r) => r.data),
+  create: (name: string, isActive: boolean) => apiClient.post<FactoryDto>('/factories', { name, isActive }).then((r) => r.data),
+  update: (id: number, name: string, isActive: boolean) => apiClient.put<FactoryDto>(`/factories/${id}`, { name, isActive }).then((r) => r.data),
+  remove: (id: number) => apiClient.delete(`/factories/${id}`),
 }
