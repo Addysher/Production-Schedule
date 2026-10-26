@@ -83,7 +83,7 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
     try {
       if (newChange.allLines) await stationsApi.createForAllLines(change)
       else await stationsApi.createCapacityOverride(station.id, change)
-      setNewChange({ ...newChange, date: '', note: '' })
+      setNewChange({ ...newChange, date: '', note: '', allLines: false })
       loadOverrides()
     } catch (e) {
       setError(errorText(e, 'Could not add the day change.'))

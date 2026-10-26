@@ -14,6 +14,11 @@ public record ScheduleGenerationResult(int JobsScheduled, int ScheduleItemsWritt
 public interface IScheduleGenerationService
 {
     Task<ScheduleGenerationResult> GenerateAsync(CancellationToken ct = default);
+
+    // Saves the caller's pending changes and re-plans, as one transaction and while holding the run lock
+    // (so a save never waits on a running re-plan with its rows locked). If the result leaves no working
+    // time at all, everything is rolled back and the reason returned.
+    Task<string?> SaveAndReplanAsync(CancellationToken ct = default);
 }
 
 // v3.0 scheduler, following how the factory plans by hand (§3.3):
@@ -69,6 +74,33 @@ public class ScheduleGenerationService : IScheduleGenerationService
         }
     }
 
+    public async Task<string?> SaveAndReplanAsync(CancellationToken ct = default)
+    {
+        await RunLock.WaitAsync(ct);
+        try
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+            await _db.SaveChangesAsync(ct);
+            try
+            {
+                await GenerateCoreAsync(ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await transaction.RollbackAsync(ct);
+                _db.ChangeTracker.Clear();
+                return ex.Message;
+            }
+
+            await transaction.CommitAsync(ct);
+            return null;
+        }
+        finally
+        {
+            RunLock.Release();
+        }
+    }
+
     // A line's view of time: its own working hours per day, and what it makes per hour.
     private sealed record Line(Station Station, Func<DateOnly, DayWindow?> WindowFor, double MinsPerEqa)
     {
@@ -76,6 +108,10 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         // Busy stretches already taken on this line (running, frozen, pinned and placed work).
         public List<(DateTime Start, DateTime End)> Busy { get; } = [];
+
+        // The end of this line's frozen work: nothing else is planned before it (§5.20, nothing is dropped
+        // into the freeze window), even where a gap opens up.
+        public DateTime FrozenUntil { get; set; } = DateTime.MinValue;
     }
 
     private async Task<ScheduleGenerationResult> GenerateCoreAsync(CancellationToken ct)
@@ -121,11 +157,22 @@ public class ScheduleGenerationService : IScheduleGenerationService
             .OrderBy(j => j.EstimatedStartDate)
             .ToListAsync(ct);
 
-        DateOnly DueOf(Job job) =>
-            job.BookedDeliveryDate ?? job.EstBookedDeliveryDate ?? job.ExpectedDeliveryDate ?? DateOnly.FromDateTime(generatedAt.AddDays(14));
+        // A booked job is due on its booked date; a TBA job on its rough date. A rough date that has already
+        // passed has gone stale (estimates are pushed until the office books delivery), so it counts as unknown
+        // — two weeks out, like a job with no date — and can't jump ahead of booked work that can be made.
+        var today = DateOnly.FromDateTime(generatedAt);
+        DateOnly DueOf(Job job)
+        {
+            if (IsBooked(job))
+            {
+                return job.BookedDeliveryDate!.Value;
+            }
+
+            var rough = job.EstBookedDeliveryDate ?? job.ExpectedDeliveryDate;
+            return rough is { } r && r >= today ? r : today.AddDays(14);
+        }
 
         // --- Work already on the floor: holds its line until its projected end, and is redrawn from now. ---
-        var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, calendar.NormalWindow, breaks);
         var inFlightRefs = inFlight.Select(j => j.JobRef).ToList();
         var inFlightItems = await _db.ScheduleItems
             .Include(si => si.Segments)
@@ -175,7 +222,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
         // --- Frozen work: keeps its line, order and start; follows the current hours and breaks. ---
         // Always re-timed from where it was planned (FrozenAnchorStart), so a temporary push never sticks.
         var frozenPlans = (await FreezeWindow.FrozenPlansAsync(_db, calendar.FreezeUntil(generatedAt), ct))
-            .Where(kv => queued.Any(j => j.JobRef == kv.Key
+            .Where(kv => queued.Any(j => j.JobRef == kv.Key && IsBooked(j) // TBA work isn't frozen: it can't be made yet
                 && lines.TryGetValue(kv.Value[0].StationId, out var l) && l.Station.ComponentType == j.ComponentType))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
         var frozenJobs = queued.Where(j => frozenPlans.ContainsKey(j.JobRef)).ToDictionary(j => j.JobRef);
@@ -207,6 +254,8 @@ public class ScheduleGenerationService : IScheduleGenerationService
                 line.Busy.Add((item.PlannedStart, end));
                 freeAt = end;
             }
+
+            line.FrozenUntil = freeAt;
         }
 
         // --- Jobs that won't be planned this run lose any old (not-started) plan and show as unscheduled. ---
@@ -230,33 +279,41 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         // --- Order: deadline first, precedence rules on top; pinned jobs first so their days are held. ---
         var byRef = routable.ToDictionary(j => j.JobRef);
-        var edges = (await _db.Precedences.AsNoTracking().Select(p => new { p.PredecessorJobRef, p.SuccessorJobRef }).ToListAsync(ct))
-            .Where(e => byRef.ContainsKey(e.PredecessorJobRef) && byRef.ContainsKey(e.SuccessorJobRef))
+        var allEdges = (await _db.Precedences.AsNoTracking().Select(p => new { p.PredecessorJobRef, p.SuccessorJobRef }).ToListAsync(ct))
             .Select(e => (e.PredecessorJobRef, e.SuccessorJobRef))
             .ToList();
+        var edges = allEdges.Where(e => byRef.ContainsKey(e.PredecessorJobRef) && byRef.ContainsKey(e.SuccessorJobRef)).ToList();
         var ordered = edges.Count > 0
             ? PrecedenceGraph.TopologicalSort(byRef.Keys, edges, r => DueOf(byRef[r]).ToDateTime(TimeOnly.MinValue)).Select(r => byRef[r]).ToList()
             : routable.OrderBy(DueOf).ThenBy(j => j.BookedDeliveryDate is null).ThenBy(j => j.JobRef).ToList();
         var pinnedFirst = ordered.Where(IsEffectivelyPinned).OrderBy(j => j.ManualScheduleDate).Concat(ordered.Where(j => !IsEffectivelyPinned(j)));
 
-        var plannedEnds = new Dictionary<string, DateTime>();
+        // Predecessors that are already running or frozen count too: a successor waits for them.
+        var plannedEnds = inFlight.Where(j => j.EstimatedCompletionDate is not null).ToDictionary(j => j.JobRef, j => j.EstimatedCompletionDate!.Value);
+        foreach (var frozen in frozenJobs.Values.Where(j => j.EstimatedCompletionDate is not null))
+        {
+            plannedEnds[frozen.JobRef] = frozen.EstimatedCompletionDate!.Value;
+        }
         var scheduleItemsWritten = 0;
         foreach (var job in pinnedFirst)
         {
             var due = DueOf(job);
             var latestFinish = calendar.LatestFinish(due);
-            DateTime notBefore = windowStart;
-            if (calendar.EarliestStart(due) is { } earliest && earliest > notBefore)
+            var notBefore = generatedAt; // each line then moves on to its own next working moment (incl. overtime)
+            if (IsEffectivelyPinned(job) && job.ManualScheduleDate is { } pinDay)
+            {
+                // A pin is where someone put it: the delivery window's earliest start doesn't move it.
+                if (pinDay.ToDateTime(TimeOnly.MinValue) > notBefore)
+                {
+                    notBefore = pinDay.ToDateTime(TimeOnly.MinValue);
+                }
+            }
+            else if (calendar.EarliestStart(due) is { } earliest && earliest > notBefore)
             {
                 notBefore = earliest;
             }
 
-            if (IsEffectivelyPinned(job) && job.ManualScheduleDate is { } pinDay && pinDay.ToDateTime(TimeOnly.MinValue) > notBefore)
-            {
-                notBefore = pinDay.ToDateTime(TimeOnly.MinValue);
-            }
-
-            foreach (var predecessor in edges.Where(e => e.SuccessorJobRef == job.JobRef).Select(e => e.PredecessorJobRef))
+            foreach (var predecessor in allEdges.Where(e => e.SuccessorJobRef == job.JobRef).Select(e => e.PredecessorJobRef))
             {
                 if (plannedEnds.TryGetValue(predecessor, out var predecessorEnd) && predecessorEnd > notBefore)
                 {
@@ -269,7 +326,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
             (Line Line, DateTime Start, DateTime End)? chosen = null;
             foreach (var line in LinesFor(job))
             {
-                var (start, end) = FirstFit(line, eqa, notBefore, breaks);
+                var (start, end) = FirstFit(line, eqa, notBefore > line.FrozenUntil ? notBefore : line.FrozenUntil, breaks);
                 if (end <= latestFinish)
                 {
                     chosen = (line, start, end);

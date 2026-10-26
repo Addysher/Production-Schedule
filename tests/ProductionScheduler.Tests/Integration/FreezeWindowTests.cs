@@ -19,7 +19,8 @@ public class FreezeWindowTests
     private static Job NewJob(string jobRef, string comp, decimal eqa, DateOnly due) => new()
     {
         JobRef = jobRef, ComponentType = comp, DesignStatus = "FinalDesign", Status = "ready", TotalEqA = eqa,
-        ExpectedDeliveryDate = due, EstBookedDeliveryDate = due, CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
+        ExpectedDeliveryDate = due, EstBookedDeliveryDate = due, BookedDeliveryDate = due, // booked: only called-up work freezes
+        CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
     };
 
     private static async Task<JsonElement> ItemAsync(HttpClient client, string jobRef) =>

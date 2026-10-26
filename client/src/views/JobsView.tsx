@@ -127,7 +127,7 @@ export function JobsView() {
     bulk('Approve for cutting', async (jobRef) => {
       // Only complete bundles in bulk; an incomplete one needs its own confirmation from the job's popup.
       const job = jobs.find((j) => j.jobRef === jobRef)
-      if (job?.status !== 'ready' || job.sawBundleStatus !== 'waiting') return 'skipped'
+      if (job?.status !== 'ready' || job.isTba || job.sawBundleStatus !== 'waiting') return 'skipped'
       await jobsApi.approveForCutting(jobRef)
       return 'done'
     })

@@ -129,6 +129,30 @@ public class SchedulerRulesV3Tests
     }
 
     [Fact]
+    public async Task TbaWork_IsNeverFrozen_AndAStaleRoughDateDoesntJumpBookedWork()
+    {
+        await _f.AddStationAsync("V3 Stale Line", "V3Stale");
+        await AddJobsAsync(NewJob("V3-STALE-TBA", "V3Stale", 600, booked: null, rough: SiteClock.Today.AddDays(-7))); // estimate gone stale
+        var admin = await _f.ClientAsync();
+        await admin.PostAsync("/api/schedule/generate", null);
+        await _f.SetSettingsAsync(("FreezeWindowDays", "3"));
+        try
+        {
+            // Booked work arrives, due in a few days: it goes first, even though the TBA job was planned at the
+            // front of the line inside the freeze window and its rough date is earlier.
+            await AddJobsAsync(NewJob("V3-STALE-BOOKED", "V3Stale", 60, SiteClock.Today.AddDays(3)));
+            await admin.PostAsync("/api/schedule/generate", null);
+
+            Assert.True(Start(await ItemAsync(admin, "V3-STALE-BOOKED")) < Start(await ItemAsync(admin, "V3-STALE-TBA")));
+            Assert.False((await ItemAsync(admin, "V3-STALE-TBA"))!.Value.GetProperty("isFrozen").GetBoolean());
+        }
+        finally
+        {
+            await _f.SetSettingsAsync(("FreezeWindowDays", "0"));
+        }
+    }
+
+    [Fact]
     public async Task ACutJob_GetsNoPriority_ProductionOrderIsByDeliveryDate()
     {
         await _f.AddStationAsync("V3 Cut Line", "V3Cut");

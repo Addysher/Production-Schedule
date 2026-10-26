@@ -30,7 +30,8 @@ public class JobsController : ControllerBase
     // (est. booked, else expected delivery) stands in.
     private static DateOnly? DueDateOf(Job j) => j.BookedDeliveryDate ?? j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate;
 
-    private static bool IsTba(Job j) => j.BookedDeliveryDate is null;
+    // Same rule as the scheduler: only a Final Design job with a booked delivery date is called up.
+    private static bool IsTba(Job j) => j.BookedDeliveryDate is null || j.DesignStatus != "FinalDesign";
 
     private async Task<JobDetailDto> ToDetailDtoAsync(Job j) =>
         ToDetailDto(j, (await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(j.JobRef), await _db.JobMembers.CountAsync(m => m.JobRef == j.JobRef));

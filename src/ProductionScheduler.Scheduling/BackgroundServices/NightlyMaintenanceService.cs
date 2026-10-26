@@ -76,6 +76,7 @@ public class NightlyMaintenanceService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "{TaskLabel} failed.", taskLabel);
+            db.ChangeTracker.Clear(); // don't save whatever the failed task had half-done along with the log entry
             db.MaintenanceLogs.Add(new MaintenanceLog
             {
                 TaskName = taskLabel,

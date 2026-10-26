@@ -27,7 +27,7 @@
 | Production tracking | PRD files polled per station (not yet tested against a real PRD file) | §5.9 |
 | Cut signal | Folder renamed `{JobRef}__DONE`, watched in any configured path | §5.12 |
 | File bundling | MME files staged per job, moved to the waiting folder once every member has its file; Approve for cutting stays manual | §5.11 |
-| Scheduling | EDD sequencing + same-station precedence + setup times + daily capacity + breaks. ATCS built, not wired | §3.3 |
+| Scheduling | Called up by booked delivery date (TBA jobs pencilled in); delivery window; first line first, one job per line; EqA per hour per line; overtime / closed days per line; re-plans on PRD progress and nightly | §3.3 |
 | Calendar | Day / Week / Month views, drag-and-drop rescheduling, Recalculate button, live "now" line | §5.3 |
 | At risk / behind schedule | Computed from the schedule vs the due date and vs now | §5.2, §8.2 |
 | Auth (current) | Local accounts, BCrypt, JWT (8 h), Admin / Supervisor / Viewer / Kiosk roles, re-checked on every request, session survives refresh | §5.19 |
@@ -138,7 +138,7 @@ Meet due dates and minimise tardiness.
 |---|---|
 | Setup / changeover times | **Built, limited.** Looked up by `(FromComponentType, ToComponentType)` and added between consecutive jobs on a station. Since a station only runs one component type, a changeover between *different* types never arises in practice. No admin screen — rows are entered directly in the `SetupTimes` table |
 | Job precedence | **Built, same station only.** Enforced when both jobs land on the same station. No admin screen yet (`Precedences` table) |
-| Daily station capacity | **Built.** `Stations.DailyEqATarget`, overridable per day (`StationCapacityOverrides`) |
+| Line capacity | **Built (v3.0).** `Stations.EqaPerHour`; per-line day changes (overtime / closed) in `StationCapacityOverrides` |
 | Working hours, days, breaks | **Built.** Settings hours + working days; breaks from active shifts |
 | Operator availability | **Built, not wired.** `OperatorAvail` exists; operators aren't assigned to work (`ScheduleItems.OperatorId` is always empty) |
 
@@ -200,26 +200,47 @@ The domain is the database model — see §4.2 for every entity and column. The 
 
 ### 3.3 Scheduling Engine
 
-**How a schedule run works today** (`ScheduleGenerationService`):
+**How a schedule run works (v3.0, `ScheduleGenerationService`)** — modelled on how the factory plans by hand in its spreadsheet:
 
-1. **Running work first.** Jobs that are `in-production` are never re-planned. Each one occupies its station until its projected end:
-   - creep flagged and not yet approved → the original planned end (frozen);
-   - otherwise → the remaining EqA (`TotalEqA − CompletedEqA`) placed from now.
-   Their projected end updates `Jobs.EstimatedCompletionDate`. Their existing `ScheduleItems` row is not edited, so plan-vs-actual history survives (see the known issue in §9.4).
-2. **Everything not yet started.** Jobs with `DesignStatus = FinalDesign` and status `ready`, `approved` or `cut` are routed by `MachineAssigner`: pinned jobs go to their pinned station, unmoved `cut` jobs stay on the station they were cut for, everything else goes to the least-loaded matching station. Jobs with no matching active station are skipped and counted.
-3. **Sequence per station.** Unmoved `cut` jobs first (in their existing order), then earliest due date first (`EstBookedDeliveryDate`, else `ExpectedDeliveryDate`, else now + 14 days); a topological sort with EDD tie-breaks is used if precedence edges exist. **Pinned jobs** are woven into that one sequence: a pinned job starts on its pinned day (or as soon as the station is free after it), and any job that wouldn't finish before that day waits until after it. Nothing on a station overlaps.
-4. **Place on the working calendar.** Each job's duration is `TotalEqA × MinsPerUnit` (from the `JobTypes` row matching its component type; 1 min/EqA if none). `WorkingCalendar` lays the work into the working window, skipping non-working days and breaks, and respecting the station's daily EqA capacity (a full day pushes the work, and its planned start, to the next day). A changeover from `SetupTimes` (previous job's component type → next job's) is added between consecutive jobs. Because each station runs a single component type, only same-type rows (e.g. `RoofTrusses → RoofTrusses`) can currently have any effect.
-5. **Write the plan.** Not-yet-started `ScheduleItems` for each of these jobs (including `cut` jobs) are replaced with a fresh row plus one `ScheduleSegment` per day. `AssignedStationId`, `EstimatedStartDate` and `EstimatedCompletionDate` are written back to the job.
+1. **What gets planned.**
+   - A job is **called up** for production when the office has entered its **Booked Delivery** date (typed in on the job). That date is its deadline and sets its priority.
+   - A job without one is **TBA**. This includes quote-stage jobs. TBA jobs are **pencilled in** by their rough date (Est. Booked Delivery, else Expected Delivery) and hold their slot like any job. They are marked TBA on screen, and can't be approved for cutting or have their MPS sent to a line until they're booked.
+   - A rough date that has already passed counts as unknown (two weeks out, like no date), so a stale estimate can't jump ahead of booked work.
+   - `PencilTbaJobs = false` takes TBA jobs off the plan entirely.
+2. **Work already on the floor.**
+   - `in-production` jobs are never re-planned. Each holds its line until its projected end: the remaining EqA placed from now, or the original plan end while creep is unapproved.
+   - Each is redrawn from now. Past segments and the original plan are kept for plan-vs-actual.
+3. **Frozen work** (§5.20) keeps its line, order and start (`FrozenAnchorStart`), but follows the current hours and breaks. Only **booked** work freezes: TBA work can't be made yet, so it stays movable. Nothing else is planned on a line before its last frozen job, even if a gap opens.
+4. **Order.**
+   - Deadline first (booked date, else rough date), with precedence rules on top. Pinned jobs are placed first so their days are held.
+   - **Cut jobs get no priority**: the cutting order follows the production order.
+5. **Delivery window.** A job should finish at least `ProductionLeadDaysMin` working days before delivery. It may not start more than `ProductionLeadDaysMax` working days before it (0 = no limit), so finished work doesn't fill the yard.
+6. **Which line.**
+   - One job per line; a job is never split.
+   - The **first line** (by display order) that makes the product takes the job if it can finish in its window. Only otherwise does the work go to the next line. If no line can make the date, the job goes where it finishes soonest and shows as at risk / late.
+   - A job fills the **first gap** on its line that's long enough (for example, before a pinned job).
+   - A job made of several products (e.g. trusses and walls) is already separate jobs, one per product, so each goes to its own line.
+7. **How long.**
+   - A line makes `Stations.EqaPerHour` EqA per working hour, so a job takes EqA ÷ rate. Not set means 60/h, a minute per EqA.
+   - A line's day is the shifts' working day minus breaks (§5.18), except where that line has a **day change**: overtime hours, or closed.
+8. **Write the plan.**
+   - Each job's not-started `ScheduleItems` row is replaced, with one `ScheduleSegment` per stretch of work.
+   - `AssignedStationId`, `EstimatedStartDate` and `EstimatedCompletionDate` are written back to the job.
 
-**When it runs:** after SCH files are imported (once per poll cycle), after any job create / edit / delete / pin / unpin, and when an admin presses **Recalculate** on the Calendar.
+**When it runs:**
+- after SCH imports;
+- after any job create, edit, delete, pin or unpin;
+- after saving a shift, a station, a line's day change or a calendar setting;
+- after the **PRD reader picks up new production**: the feedback loop, every `PrdPollIntervalMinutes`;
+- **nightly**;
+- when an admin presses **Recalculate**.
 
 | Component | State |
 |---|---|
-| `MachineAssigner` | Built — fixed first, then lowest-load compatible station |
-| `Sequencer.SequenceEdd` | Built and used |
-| `Sequencer.SequenceAtcs` | Built, not wired (unit-tested) |
-| `TardinessCalc` (total weighted, max, late count) | Built, not wired — no local-search loop compares schedules yet |
-| `WorkingCalendar` | Built — window, working days, breaks, capacity, per-day segments |
+| `ScheduleGenerationService` | v3.0 rules above (first fit per line, first line first) |
+| `PrecedenceGraph` | Used (precedence across all lines) |
+| `Sequencer.SequenceAtcs`, `TardinessCalc`, `MachineAssigner` | Built and unit-tested, not used by the live scheduler |
+| `WorkingCalendar` | Per-day windows (overtime / closed per line), breaks, per-day segments |
 
 ### 3.4 ASP.NET API Controllers
 
@@ -265,7 +286,7 @@ Every endpoint requires a valid JWT unless marked Public (a fallback policy enfo
 | `POST/PUT/DELETE` | `/api/stations[/{id}]` | Admin | Manage stations |
 | `GET` | `/api/stations/{id}/capacity-overrides` | Any | Per-day EqA overrides |
 | `POST/PUT/DELETE` | `/api/stations/{id}/capacity-overrides[/{overrideId}]` | Admin | Manage overrides |
-| `GET` | `/api/jobtypes[/{id}]` | Any | Job types (`MinsPerUnit`) |
+| `GET` | `/api/jobtypes[/{id}]` | Any | Job types (Quote Estimator line items) |
 | `POST/PUT/DELETE` | `/api/jobtypes[/{id}]` | Admin | Manage job types |
 | `GET/POST/PUT/DELETE` | `/api/shifts[/{id}]` | Admin | Shifts and their breaks |
 | `GET/POST/PUT/DELETE` | `/api/operators[/{id}]` | Admin | Operators (no UI screen yet) |
@@ -340,16 +361,20 @@ Stations (
   MpsPath         NVARCHAR(500) NULL,       -- "DataIn": MPS files moved here from the product pool before production
   IsActive        BIT           NOT NULL,
   DisplayOrder    INT           NOT NULL,   -- Calendar column order
-  DailyEqATarget  DECIMAL(10,4) NULL,       -- daily capacity; NULL = unlimited
+  EqaPerHour      DECIMAL(10,4) NULL,       -- v3.0: EqA made per working hour; job length = EqA ÷ this (NULL = 60)
+  FactoryId       INT           NULL REFERENCES Factories(Id) ON DELETE SET NULL
   ArchivePath     NVARCHAR(500) NULL        -- where finished MPS files are archived (§5.13)
 )
 
--- Replaces DailyEqATarget for one station on one date.
+-- v3.0: a one-off change to one line's day — overtime hours, or closed (shutdown / public holiday).
 StationCapacityOverrides (
   Id              INT           IDENTITY PRIMARY KEY,
   StationId       INT           NOT NULL REFERENCES Stations(Id) ON DELETE CASCADE,
   OverrideDate    DATE          NOT NULL,
-  EqATarget       DECIMAL(10,4) NOT NULL,
+  IsClosed        BIT           NOT NULL,
+  StartTime       TIME          NULL,     -- overtime start (NULL = normal start)
+  EndTime         TIME          NULL,     -- overtime end (NULL = normal end; 00:00 = midnight)
+  Note            NVARCHAR(200) NULL,
   CreatedAt       DATETIME2     NOT NULL,
   UNIQUE (StationId, OverrideDate)
 )
@@ -575,7 +600,6 @@ JobTypes (
   Id              INT             IDENTITY PRIMARY KEY,
   Name            NVARCHAR(100)   NOT NULL,
   ComponentType   NVARCHAR(100)   NULL,   -- links to Stations.ComponentType
-  MinsPerUnit     DECIMAL(8,2)    NOT NULL,   -- minutes per EqA: drives BOTH scheduling durations and quotes
   IsActive        BIT             NOT NULL
 )
 ```
@@ -759,7 +783,7 @@ Fields: Job Reference, Job Structure Name, Component Type, Client Name, Site Add
 
 **Quotes page — Quote Estimator**
 - Input: quote reference + one or more lines of `Job Type` + `Qty`.
-- Each line's duration is `MinsPerUnit × Qty`, placed after the latest projected completion among active jobs already queued at stations of that job type's component type. Working hours, working days and breaks are respected.
+- Each line is entered in EqA; its duration is EqA ÷ the product's first line's EqA per hour, placed after the latest projected completion among active jobs already queued at stations of that job type's component type. Working hours, working days and breaks are respected.
 - Output per line: estimated completion date and time; with several lines, the latest is shown as "Full order ready".
 - Permanently time-based: setup times and operator availability are never factored in (§8.3).
 
@@ -1080,7 +1104,8 @@ The working day used by the scheduler, the Quote Estimator and the Calendar come
 | Working day | The **active shifts**: earliest start to latest end, to the minute (e.g. 06:00–14:30). Only with no active shift: the `ShiftStartHour` – `ShiftEndHour` settings |
 | Working days | `WorkingDays` setting (0 = Sun … 6 = Sat; default Mon–Fri) |
 | Breaks | All break windows from **active** shifts combined |
-| Daily capacity | `Stations.DailyEqATarget`, or that day's `StationCapacityOverrides` row |
+| Line speed | `Stations.EqaPerHour` (v3.0); a day's target = rate × that day's working hours after breaks |
+| Line day changes | `StationCapacityOverrides`: overtime hours (start/end; can open a weekend day) or closed, per line per day; "all lines" for public holidays (Station form → Day changes) |
 
 Rules (v3.0):
 - **Shift times** are entered as 24-hour hour and minute lists. 00:00 as an end means midnight; shifts that run past midnight aren't supported.
@@ -1192,6 +1217,8 @@ Anything an administrator may need to change is a row in the `Settings` table, e
 | `NightlyMaintenanceRunHour` | Nightly run hour | `1` |
 | `ThemePrimaryColor` / `ThemeSecondaryColor` | Brand colours (§5.17) | `#0a5e73` / `#fdb913` |
 | `ThemeMode` | Site default mode | `system` |
+| `ProductionLeadDaysMin` / `ProductionLeadDaysMax` | Delivery window: finish at least Min, start no more than Max working days before booked delivery (Max 0 = no limit) | `1` / `5` |
+| `PencilTbaJobs` | Plan jobs with no booked delivery date (TBA, incl. quotes) as pencilled-in work | `true` |
 | `FreezeWindowDays` | Lock-out: today + this many working days are frozen (§5.20); 0 = off | `3` |
 | `SmtpHost` / `SmtpPort` / `SmtpUseSsl` | Mail relay (§5.21) | empty / `25` / `false` |
 | `SmtpUsername` / `SmtpPassword` | Relay sign-in; blank = none. The password is never returned to the browser | empty |
@@ -1272,7 +1299,7 @@ Also: `AuthLoginTests` (username case), `PlanningFidelityTests`, `SiteTimeAndInp
 
 ### 8.3 Quote Estimator scope
 
-Permanently time-based: queue tail + `MinsPerUnit × Qty`, respecting working hours, days and breaks. Setup times and operators are never factored in.
+Permanently time-based: queue tail + EqA ÷ the first line's EqA per hour, respecting working hours, days and breaks. Setup times and operators are never factored in.
 
 ### 8.4 Export format
 
@@ -1377,6 +1404,8 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 | 17 | Kiosk sessions end after 8 hours like any other | Belongs with the Office 365 work (§9.2) |
 | 18 | Email layout is a plain table; the "custom form" is TBC | §5.21 |
 | 19 | "Ready to cut" is still a manual Approve; the automatic logic is TBC | §5.11 |
+| 20 | The delivery window counts working days from the site calendar: a public holiday entered as a line closure still counts as a working day there | Planning still skips the closed day; only the window's day count is affected |
+| 21 | Rolling back the HourlyCapacityAndLineDays migration restores the columns but not their old values | Restore from a backup instead |
 
 ### 9.5 Deployment checklist (not started)
 

@@ -213,7 +213,20 @@ public static class WorkingCalendar
             return 0;
         }
 
-        var lost = breaks.Sum(b => Math.Max(0, (Min(b.End, w.End) - Max(b.Start, w.Start)).TotalMinutes));
+        // Breaks from several shifts can overlap (or repeat); each minute of break only counts once.
+        double lost = 0;
+        var coveredUntil = w.Start;
+        foreach (var b in breaks.OrderBy(b => b.Start))
+        {
+            var from = Max(Max(b.Start, w.Start), coveredUntil);
+            var to = Min(b.End, w.End);
+            if (to > from)
+            {
+                lost += (to - from).TotalMinutes;
+                coveredUntil = to;
+            }
+        }
+
         return Math.Max(0, (w.End - w.Start).TotalMinutes - lost);
 
         static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;

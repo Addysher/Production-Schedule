@@ -18,8 +18,8 @@ public class QuoteController : ControllerBase
         _db = db;
     }
 
-    // Purely time-based per §8.3: after the product's current queue, the line item's EqA at the speed of the
-    // product's first line (its EqA per hour, v3.0). Setup times and operators are out of scope.
+    // Purely time-based per §8.3: the line item's EqA at the speed of the product's first line (its EqA per
+    // hour, v3.0), in the first gap on that line. Setup times and operators are out of scope.
     [HttpPost("estimate")]
     public async Task<ActionResult<QuoteEstimateResponse>> Estimate(QuoteEstimateRequest request)
     {
@@ -29,11 +29,9 @@ public class QuoteController : ControllerBase
         }
 
         var calendar = await WorkCalendarSettings.LoadAsync(_db);
-        var shiftStartHour = calendar.DayStart;
-        var shiftEndHour = calendar.DayEnd;
-        var workingDays = calendar.WorkingDays;
         var now = SiteClock.Now;
         var results = new List<QuoteLineResult>();
+        var busyByLine = new Dictionary<int, List<(DateTime Start, DateTime End)>>();
 
         foreach (var line in request.Lines)
         {
@@ -43,20 +41,46 @@ public class QuoteController : ControllerBase
                 return BadRequest($"Job type {line.JobTypeId} does not exist.");
             }
 
-            // Queue tail = the latest projected completion among active jobs already queued
-            // at any station serving this job type's component group.
-            var maxCompletion = await _db.Jobs
-                .Where(j => !j.IsArchived && j.Status != "completed"
-                    && j.ComponentType == jobType.ComponentType
-                    && j.EstimatedCompletionDate != null)
-                .MaxAsync(j => (DateTime?)j.EstimatedCompletionDate);
+            // v3.0: the first gap long enough on the product's first line (the scheduler's own rule), using
+            // that line's speed and its working days (incl. overtime / closures). Earlier line items in this
+            // quote take their place first.
+            var station = await _db.Stations.AsNoTracking().Where(st => st.IsActive && st.ComponentType == jobType.ComponentType)
+                .OrderBy(st => st.DisplayOrder).ThenBy(st => st.Id).FirstOrDefaultAsync();
+            if (station is null)
+            {
+                return BadRequest($"No active line makes '{jobType.ComponentType}', so '{jobType.Name}' can't be estimated.");
+            }
 
-            var queueTail = maxCompletion is DateTime tail && tail > now ? tail : now;
+            if (!busyByLine.TryGetValue(station.Id, out var busy))
+            {
+                busy = (await _db.ScheduleItems.AsNoTracking()
+                        .Where(i => i.StationId == station.Id && !i.IsArchived && i.ActualEnd == null)
+                        .Select(i => new { i.PlannedStart, i.PlannedEnd, i.ActualStart, i.Job.EstimatedCompletionDate })
+                        .ToListAsync())
+                    .Select(i => i.ActualStart is null ? (i.PlannedStart, i.PlannedEnd) : (now, i.EstimatedCompletionDate ?? i.PlannedEnd))
+                    .ToList();
+                busyByLine[station.Id] = busy;
+            }
 
-            var eqaPerHour = await _db.Stations.Where(s => s.IsActive && s.ComponentType == jobType.ComponentType)
-                .OrderBy(s => s.DisplayOrder).ThenBy(s => s.Id).Select(s => s.EqaPerHour).FirstOrDefaultAsync();
-            var durationMinutes = (double)line.Qty * 60 / (eqaPerHour is > 0 ? (double)eqaPerHour.Value : 60);
-            var completion = WorkingCalendar.PlaceDuration(queueTail, durationMinutes, shiftStartHour, shiftEndHour, workingDays, calendar.Breaks);
+            var changes = await _db.StationCapacityOverrides.AsNoTracking().Where(o => o.StationId == station.Id).ToDictionaryAsync(o => o.OverrideDate);
+            var windowFor = calendar.WindowFor(changes);
+            var durationMinutes = (double)line.Qty * 60 / (station.EqaPerHour is > 0 ? (double)station.EqaPerHour.Value : 60);
+            var from = WorkingCalendar.AdvanceToWorkingWindow(now, windowFor, calendar.Breaks);
+            DateTime completion;
+            while (true)
+            {
+                completion = WorkingCalendar.PlaceDuration(from, durationMinutes, windowFor, calendar.Breaks);
+                var start = from;
+                var clash = busy.Where(x => x.Start < completion && x.End > start).OrderBy(x => x.End).LastOrDefault();
+                if (clash == default)
+                {
+                    break;
+                }
+
+                from = WorkingCalendar.AdvanceToWorkingWindow(clash.End, windowFor, calendar.Breaks);
+            }
+
+            busy.Add((from, completion));
 
             results.Add(new QuoteLineResult(jobType.Id, jobType.Name, line.Qty, completion));
         }

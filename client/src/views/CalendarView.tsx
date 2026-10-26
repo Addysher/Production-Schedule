@@ -113,7 +113,20 @@ export function CalendarView() {
     return startAutoRefresh(load)
   }, [])
 
-  const { shiftStartHour, shiftEndHour, workingDays } = calendar
+  const { workingDays } = calendar
+  // The hour grid covers the normal day, widened to any work planned outside it (a line's overtime).
+  const segmentHours = items.flatMap((i) =>
+    i.segments.map((s) => {
+      const start = new Date(s.start)
+      const end = new Date(s.end)
+      const endHour = end.getHours() + end.getMinutes() / 60
+      return { from: start.getHours(), to: Math.ceil(endHour === 0 && end > start ? 24 : endHour) }
+    }),
+  )
+  const shiftStartHour = Math.min(calendar.shiftStartHour, ...segmentHours.map((h) => h.from))
+  const shiftEndHour = Math.max(calendar.shiftEndHour, ...segmentHours.map((h) => h.to))
+  // Days with planned work, so a normally non-working day opened by overtime still shows in Week view.
+  const daysWithWork = new Set(items.flatMap((i) => i.segments.map((s) => s.date.slice(0, 10))))
   const isLateFor = (jobRef: string) => jobs.find((j) => j.jobRef === jobRef)?.isLate ?? false
   const isAtRiskFor = (jobRef: string) => jobs.find((j) => j.jobRef === jobRef)?.isAtRisk ?? false
 
@@ -151,8 +164,9 @@ export function CalendarView() {
       const d = new Date(monday)
       d.setDate(d.getDate() + i)
       return d
-    }).filter((d) => workingDays.includes(d.getDay()))
-  }, [anchorDate, workingDays])
+    }).filter((d) => workingDays.includes(d.getDay()) || daysWithWork.has(localIsoDate(d)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorDate, workingDays, items])
 
   // Always the full Mon-Sun grid, padded into neighbouring months — a traditional month calendar,
   // not filtered to working days, so non-working days still show as (empty) cells in context.

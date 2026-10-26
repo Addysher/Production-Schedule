@@ -49,23 +49,7 @@ public class StationsController : ControllerBase
 
     // Saves, then re-plans in the same transaction: a change that leaves a line no working time for months
     // is undone with the reason instead of breaking every later re-plan.
-    private async Task<string?> SaveAndReplanAsync()
-    {
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-        await _db.SaveChangesAsync();
-        try
-        {
-            await _scheduleGenerationService.GenerateAsync();
-        }
-        catch (InvalidOperationException ex)
-        {
-            await transaction.RollbackAsync();
-            return ex.Message;
-        }
-
-        await transaction.CommitAsync();
-        return null;
-    }
+    private Task<string?> SaveAndReplanAsync() => _scheduleGenerationService.SaveAndReplanAsync();
 
     // Read access is open to any authenticated user — the calendar and dashboard (Viewer-visible)
     // render station columns/cards, even though station management itself is Admin-only.
@@ -173,13 +157,18 @@ public class StationsController : ControllerBase
 
         // Deactivate rather than hard-delete — stations are referenced by historical ScheduleItems.
         station.IsActive = false;
-        await SaveAndReplanAsync();
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
         return NoContent();
     }
 
     // --- One-off changes to a line's working day: overtime hours, or closed (shutdown / public holiday) ---
 
-    private static string? OverrideProblem(UpsertCapacityOverrideRequest request)
+    // A missing start or end means the normal one, so the check is on the hours the line would actually work.
+    private async Task<string?> OverrideProblemAsync(UpsertCapacityOverrideRequest request)
     {
         if (request.IsClosed)
         {
@@ -191,9 +180,15 @@ public class StationsController : ControllerBase
             return "Give the overtime hours (a start and/or end time), or mark the line closed.";
         }
 
-        var end = request.EndTime == TimeOnly.MinValue ? TimeSpan.FromHours(24) : request.EndTime?.ToTimeSpan();
-        return request.StartTime is { } s && end is { } e && e <= s.ToTimeSpan() ? "The end time must be after the start time." : null;
+        var calendar = await WorkCalendarSettings.LoadAsync(_db);
+        var start = request.StartTime?.ToTimeSpan() ?? calendar.DayStart;
+        var end = request.EndTime is { } e ? (e == TimeOnly.MinValue ? TimeSpan.FromHours(24) : e.ToTimeSpan()) : calendar.DayEnd;
+        return end <= start
+            ? $"Those hours ({Clock(start)} to {Clock(end)}) leave no working time; the end must be after the start."
+            : null;
     }
+
+    private static string Clock(TimeSpan t) => $"{(int)t.TotalHours:00}:{t.Minutes:00}";
 
     private static void Apply(StationCapacityOverride entity, UpsertCapacityOverrideRequest request)
     {
@@ -225,7 +220,7 @@ public class StationsController : ControllerBase
             return NotFound();
         }
 
-        if (OverrideProblem(request) is { } problem)
+        if (await OverrideProblemAsync(request) is { } problem)
         {
             return BadRequest(problem);
         }
@@ -252,7 +247,7 @@ public class StationsController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<List<CapacityOverrideDto>>> CreateForAllLines(UpsertCapacityOverrideRequest request)
     {
-        if (OverrideProblem(request) is { } problem)
+        if (await OverrideProblemAsync(request) is { } problem)
         {
             return BadRequest(problem);
         }
@@ -291,9 +286,14 @@ public class StationsController : ControllerBase
             return NotFound();
         }
 
-        if (OverrideProblem(request) is { } problem)
+        if (await OverrideProblemAsync(request) is { } problem)
         {
             return BadRequest(problem);
+        }
+
+        if (await _db.StationCapacityOverrides.AnyAsync(o => o.StationId == id && o.OverrideDate == request.OverrideDate && o.Id != overrideId))
+        {
+            return Conflict($"This line already has a change on {request.OverrideDate:ddd d MMM}; edit or remove that one.");
         }
 
         Apply(entity, request);
@@ -316,7 +316,11 @@ public class StationsController : ControllerBase
         }
 
         _db.StationCapacityOverrides.Remove(entity);
-        await SaveAndReplanAsync();
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
         return NoContent();
     }
 }

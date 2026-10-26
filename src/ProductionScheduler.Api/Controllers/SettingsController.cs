@@ -83,23 +83,18 @@ public class SettingsController : ControllerBase
             setting.UpdatedAt = now;
         }
 
-        // A calendar change is re-planned in the same transaction, and undone if it leaves no working time.
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-        await _db.SaveChangesAsync();
+        // A calendar change is saved and re-planned together, and undone if it leaves no working time.
         if (CalendarKeys.Contains(key))
         {
-            try
+            if (await _scheduleGenerationService.SaveAndReplanAsync() is { } noWorkingTime)
             {
-                await _scheduleGenerationService.GenerateAsync();
-            }
-            catch (InvalidOperationException ex)
-            {
-                await transaction.RollbackAsync();
-                return BadRequest(ex.Message);
+                return BadRequest(noWorkingTime);
             }
         }
-
-        await transaction.CommitAsync();
+        else
+        {
+            await _db.SaveChangesAsync();
+        }
 
         return ToDto(setting);
     }

@@ -21,7 +21,8 @@ public class ShiftCalendarTests
     private static Job ReadyJob(string jobRef, string comp, decimal eqa) => new()
     {
         JobRef = jobRef, ComponentType = comp, DesignStatus = "FinalDesign", Status = "ready", TotalEqA = eqa,
-        EstBookedDeliveryDate = SiteClock.Today.AddDays(60), CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
+        EstBookedDeliveryDate = SiteClock.Today.AddDays(60), BookedDeliveryDate = SiteClock.Today.AddDays(60), // booked: called up
+        CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
     };
 
     private static async Task<List<(DateTime Start, DateTime End)>> SegmentsAsync(HttpClient admin, string jobRef)
@@ -109,7 +110,7 @@ public class ShiftCalendarTests
         await _f.WithDbAsync(async db =>
         {
             var urgent = ReadyJob("SHIFT-URG", "ShiftFrozen", 60);
-            urgent.EstBookedDeliveryDate = SiteClock.Today.AddDays(1);
+            urgent.EstBookedDeliveryDate = urgent.BookedDeliveryDate = SiteClock.Today.AddDays(1);
             db.Jobs.Add(urgent);
             await db.SaveChangesAsync();
         });

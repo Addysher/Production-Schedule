@@ -73,23 +73,7 @@ public class ShiftsController : ControllerBase
     // Saves, then re-plans in the same transaction: if the new calendar leaves no working time at all
     // (e.g. breaks from several shifts that together cover the day), the save is undone with the reason
     // instead of leaving a calendar every later re-plan would fail on.
-    private async Task<string?> SaveAndReplanAsync()
-    {
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-        await _db.SaveChangesAsync();
-        try
-        {
-            await _scheduleGenerationService.GenerateAsync();
-        }
-        catch (InvalidOperationException ex)
-        {
-            await transaction.RollbackAsync();
-            return ex.Message;
-        }
-
-        await transaction.CommitAsync();
-        return null;
-    }
+    private Task<string?> SaveAndReplanAsync() => _scheduleGenerationService.SaveAndReplanAsync();
 
     private static ShiftDto ToDto(Shift s) => new(
         s.Id, s.Name, s.StartTime, s.EndTime, s.IsActive,
