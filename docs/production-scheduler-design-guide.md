@@ -670,11 +670,11 @@ Hover shades, the sidebar background and badge tints are derived from these two 
 
 #### Job statuses
 
-`Jobs.Status` stores one of six values. **Late is not stored** — it is worked out whenever the jobs are read: a job is Late when its due date (`EstBookedDeliveryDate`, else `ExpectedDeliveryDate`) is before today and it isn't completed. Storing `late` would erase the workflow state the background services depend on.
+`Jobs.Status` stores one of six values. **Late is not stored** — it is worked out whenever the jobs are read: a job is Late when its due date (`BookedDeliveryDate`, else `ExpectedDeliveryDate`, else `EstBookedDeliveryDate`) is before today and it isn't completed. Storing `late` would erase the workflow state the background services depend on.
 
 | Stored status | Label shown | Set by | Light-mode colours (block bg / border / text) |
 |---|---|---|---|
-| `scheduled` | Scheduled | SCH import of a **Quote** (or manual create of a non-final job) | `#FFFBEB` / `#FDB913` / `#78350F` |
+| `scheduled` | Quote stage | SCH import of a **Quote** (or manual create of a non-final job) | `#FFFBEB` / `#FDB913` / `#78350F` |
 | `ready` | Ready for production | SCH import of a **FinalDesign** | `#F0FDF4` / `#86EFAC` / `#166534` |
 | `approved` | Approved | Admin: Approve for cutting (§5.11) | `#ECFEFF` / `#06B6D4` / `#0E7490` |
 | `cut` | Cut and ready | Batchcut watcher sees the DONE folder (§5.12) | `#EFF6FF` / `#3B82F6` / `#1E40AF` |
@@ -683,6 +683,8 @@ Hover shades, the sidebar background and badge tints are derived from these two 
 | *(override)* | **Late** | Due date passed, not completed | `#FFF1F2` / `#EF4444` / `#9F1239` |
 
 Every status colour has a dark-mode equivalent (§5.17).
+
+**Explained in the app:** each status pill's tooltip says what the status means and what moves the job on, and the Jobs page has a **How statuses work** guide (the six steps in order, each with "set by" and "next", plus the flags below and TBA, Frozen and Creep). The wording lives in one client file, `components/jobStatusInfo.ts`.
 
 Two more flags are computed alongside Late and drive the Dashboard (§5.2):
 
@@ -749,11 +751,13 @@ Two more flags are computed alongside Late and drive the Dashboard (§5.2):
 
 **Toolbar:** ← / → navigation · Today · **Day / Week / Month** toggle · **Recalculate** (Admin).
 
+**Job card** (every view): job reference (with Late / At risk / TBA / creep / frozen markers), product · the job's EqA, and client name. Times are in the card's tooltip; a job spread over several days shows the same card on each day, with no day count.
+
 | View | Layout |
 |---|---|
 | **Day** | One row per hour of the working window (default 06:00–18:00). Blocks are sized by duration. Breaks are hatched. A **red "now" line** marks the current time on today's view, refreshing every 15 minutes |
-| **Week** | One row per working day; the blocks for each station-day stack vertically, showing reference, start time, duration and "day 2/3" for multi-day jobs |
-| **Month** | A Mon–Sun grid of 6 weeks. Each day shows up to 4 job chips and "+N more", which jumps to that day in Day view |
+| **Week** | One row per working day; the blocks for each station-day stack vertically |
+| **Month** | A Mon–Sun grid of 6 weeks (headings Mon … Sun, matching the grid). Each day shows up to 4 job chips and "+N more", which jumps to that day in Day view |
 
 **Blocks** show the status colour, a **LATE** badge for past-due jobs and a creep badge when creep is flagged. **Double-click** opens the Job Detail Popup.
 
@@ -792,10 +796,12 @@ Fields: Job Reference, Job Structure Name, Component Type, Client Name, Site Add
 - Output per line: estimated completion date and time; with several lines, the latest is shown as "Full order ready".
 - Permanently time-based: setup times and operator availability are never factored in (§8.3).
 
-**Jobs page — Job Manager**
-- Status filter chips with live counts, a table of Job Reference · Structure Name · Station · Due Date · Prod. Value · Status · Actions.
-- Row actions: **View** (everyone), **Edit** and **Delete** (Admin, delete asks for confirmation).
-- Side panel: filters (status, component type, due-date range) and Admin bulk actions: **Approve for cutting**, **Mark delivered**.
+**Jobs page — Job Manager** *(revised v3.0)*
+- Status filter chips with live counts, a search box (job or client), and a table sorted by due date: Job Reference (lock = frozen) · Client · Product · Line · Due (TBA / At risk tags) · EqA · Status · next step · Actions.
+- **Next step** under each status says what the job is waiting for: the final design and/or a booked date, saw files (n of m), Admin approval, the saw (Batchcut), its turn on the line, how much is made, or delivery.
+- **Actions:** the step's own button when the user can take it — **Approve for cutting** (Admin; ready, booked, saw files in; an incomplete bundle asks first) or **Mark delivered** (Admin; completed) — then **View**, and **More** with Edit details (Admin), Pin to a line and day / Move / unpin (Admin and Supervisor; ready, approved or cut, not frozen) and Delete job (Admin, asks first).
+- **Bulk:** tick rows (or all shown); a bar above the table offers Approve for cutting (complete bundles only) and Mark delivered, and reports what was done, skipped or failed.
+- Side panel: filters (product, due-date range).
 - Jobs arrive through SCH import. Manual creation exists in the API but has no button in the UI.
 
 ---
@@ -1187,7 +1193,7 @@ Near-term production is frozen so the floor isn't disrupted.
   - `/kiosk` lists the factories.
   - `/kiosk/{id}` is a full-screen, self-refreshing (60 s) view of one factory's stations. For each station it shows: Eq made today against the target (with a progress bar), the job and member being made now and the next member, and the rest of today's queue.
   - Any signed-in user can open it from **Kiosk display** in the sidebar.
-  - A **Kiosk** account goes straight there and can't leave it.
+  - **One kiosk login per factory:** a **Kiosk** account is linked to one factory (Settings → Users, "Kiosk factory"; required, and a factory can have only one active kiosk login). Signing in opens that factory's display, and the login can't open the factory list or another factory. Deleting the factory leaves the login unlinked, and it shows a message until an Admin links it again.
 - **Not done yet:**
   - **Staying signed in for days.** A kiosk is signed out after the 8-hour token, like everyone else. That belongs with the Office 365 work (§9.2).
   - Keeping the screen awake.

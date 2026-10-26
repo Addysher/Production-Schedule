@@ -12,6 +12,8 @@ export function LockIcon({ size = 11 }: { size?: number }) {
   )
 }
 
+const LINE = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const
+
 export function CalendarBlock({
   item,
   segment,
@@ -30,17 +32,14 @@ export function CalendarBlock({
   const style = resolveStatusStyle(item.jobStatus, isLate)
   const start = new Date(segment.start)
   const end = new Date(segment.end)
-  const timeLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const durationMins = Math.round((end.getTime() - start.getTime()) / 60000)
-
-  // A job spread over several days is drawn once per day; say which day of how many this is.
-  const days = Array.from(new Set(item.segments.map((s) => s.date.slice(0, 10)))).sort()
-  const dayNumber = days.indexOf(segment.date.slice(0, 10)) + 1
+  const time = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const eqa = Math.round(item.plannedEqA * 10) / 10
 
   return (
     <div
       onDoubleClick={onDoubleClick}
-      title={`${item.jobRef} — ${item.componentType ?? ''}${days.length > 1 ? ` (day ${dayNumber} of ${days.length})` : ''}`}
+      title={`${item.jobRef} — ${item.componentType ?? ''} — ${item.clientName ?? 'no client'} — ${eqa} Eq
+${time(start)}–${time(end)}`}
       style={{
         // Pencilled-in (TBA) work has its own colour and a dashed outline, whatever its status.
         background: item.isTba ? 'var(--pencil-block)' : style.block,
@@ -72,11 +71,6 @@ export function CalendarBlock({
         )}
         <span style={{ fontWeight: 700 }}>{item.jobRef}</span>
         {item.isTba && <TbaTag />}
-        {days.length > 1 && (
-          <span style={{ fontSize: 10, opacity: 0.75 }}>
-            day {dayNumber}/{days.length}
-          </span>
-        )}
         {item.creepDetected && <CreepBadge approved={!!item.creepApprovedAt} />}
         {item.isFrozen && (
           <span title="Inside the freeze window — can't be moved" style={{ display: 'inline-flex', opacity: 0.8 }}>
@@ -84,10 +78,11 @@ export function CalendarBlock({
           </span>
         )}
       </div>
-      {!compact && <div>{item.componentType}</div>}
-      <div style={{ opacity: 0.8 }}>
-        {timeLabel} &middot; {durationMins}m
+      {/* The card: job reference (above), product, client and the job's EqA */}
+      <div style={LINE}>
+        {item.componentType ?? '—'} &middot; {eqa} Eq
       </div>
+      <div style={{ ...LINE, opacity: 0.85 }}>{item.clientName ?? '—'}</div>
     </div>
   )
 }

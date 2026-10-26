@@ -11,7 +11,7 @@ export interface StatusStyle {
 
 const STATUS_STYLES: Record<JobStatus, StatusStyle> = {
   scheduled: {
-    label: 'Scheduled',
+    label: 'Quote stage', // stored as 'scheduled': a quote, not yet a final design
     block: 'var(--status-scheduled-block)',
     border: 'var(--status-scheduled-border)',
     text: 'var(--status-scheduled-text)',

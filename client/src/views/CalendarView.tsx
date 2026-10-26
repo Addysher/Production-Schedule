@@ -19,7 +19,8 @@ import { approveForCuttingWithConfirm, canApproveForCutting } from '../component
 import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
 
 const ROW_HEIGHT = 52
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] // indexed by Date.getDay()
+const MONTH_HEADINGS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] // the month grid starts on Monday
 const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour: 18, workingDays: [1, 2, 3, 4, 5], breaks: [], freezeUntil: null, dayStart: '06:00', dayEnd: '18:00' }
 
 // Hatching for days inside the freeze window.
@@ -430,7 +431,7 @@ export function CalendarView() {
           {mode === 'month' ? (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
-                {DAY_NAMES.map((n) => (
+                {MONTH_HEADINGS.map((n) => (
                   <div key={n} style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', borderBottom: '1px solid var(--border-subtle)' }}>
                     {n}
                   </div>

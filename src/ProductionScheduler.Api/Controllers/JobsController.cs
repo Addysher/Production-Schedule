@@ -67,6 +67,10 @@ public class JobsController : ControllerBase
         var now = SiteClock.Now;
         var atRiskBufferMinutes = await SettingsReader.GetIntAsync(_db, "AtRiskBufferMinutes", 1440);
         var frozen = await FreezeWindow.FrozenJobRefsAsync(_db);
+        var refs = jobs.Select(j => j.JobRef).ToList();
+        var memberCounts = await _db.JobMembers.Where(m => refs.Contains(m.JobRef))
+            .GroupBy(m => m.JobRef).Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Key, g => g.Count);
         return jobs.Select(j =>
             {
                 var dueDate = DueDateOf(j);
@@ -77,7 +81,8 @@ public class JobsController : ControllerBase
                     j.EstimatedCompletionDate,
                     JobStatusService.IsAtRisk(j.EstimatedCompletionDate, dueDate, j.Status, now, atRiskBufferMinutes),
                     JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now),
-                    frozen.Contains(j.JobRef), j.SawBundleStatus, j.IsArchived, IsTba(j));
+                    frozen.Contains(j.JobRef), j.SawBundleStatus, j.IsArchived, IsTba(j),
+                    j.Delivered, j.SawFileCount, memberCounts.GetValueOrDefault(j.JobRef), j.CompletedEqA, j.IsManuallyScheduled);
             })
             .ToList();
     }

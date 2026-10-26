@@ -5,6 +5,7 @@ export interface LoginResponse {
   token: string
   username: string
   role: Role
+  factoryId: number | null // a Kiosk login's factory
 }
 
 export interface StationDto {
@@ -77,6 +78,8 @@ export interface UserDto {
   isActive: boolean
   createdAt: string
   lastLoginAt: string | null
+  factoryId: number | null // Kiosk accounts: the factory whose display this login shows
+  factoryName: string | null
 }
 
 export interface SettingDto {
@@ -130,6 +133,11 @@ export interface JobSummaryDto {
   sawBundleStatus: SawBundleStatus
   isArchived: boolean
   isTba: boolean // no booked delivery date: pencilled in, not produced until booked
+  delivered: boolean
+  sawFileCount: number
+  memberCount: number
+  completedEqA: number | null
+  isManuallyScheduled: boolean
 }
 
 export interface JobDetailDto {
