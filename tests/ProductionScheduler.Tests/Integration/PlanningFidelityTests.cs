@@ -34,7 +34,7 @@ public class PlanningFidelityTests
     [Fact]
     public async Task MultiDayJob_IsPlannedPerDay_WithSegmentsThatAddUpToTheWholeJob()
     {
-        await _f.AddStationAsync("PF Multi Station", "PfMulti", dailyEqATarget: 100);
+        await _f.AddStationAsync("PF Multi Station", "PfMulti", eqaPerHour: 4); // 96 Eq a (24 h) day
         await _f.WithDbAsync(async db => { db.Jobs.Add(ReadyJob("PFM1", "PfMulti", 250)); await db.SaveChangesAsync(); });
         var admin = await _f.ClientAsync();
 
@@ -43,7 +43,7 @@ public class PlanningFidelityTests
         var item = await ScheduleItemAsync(admin, "PFM1");
         var segments = item.GetProperty("segments").EnumerateArray().ToList();
 
-        Assert.True(segments.Count >= 3, "250 EqA at 100/day needs at least three days");
+        Assert.True(segments.Count >= 3, "250 EqA at 96/day needs at least three days");
         Assert.Equal(250m, segments.Sum(s => s.GetProperty("plannedEqA").GetDecimal()));
         Assert.All(segments, s => Assert.True(s.GetProperty("plannedEqA").GetDecimal() <= 100m));
 

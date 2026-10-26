@@ -3,8 +3,9 @@ import type { JobStatus, SawBundleStatus } from '../types/api'
 
 // Approve for cutting is offered once a ready job has saw files: straight away when the bundle is
 // complete, or after a confirmation when some members' files are still missing.
-export const canApproveForCutting = (job: { status: JobStatus; sawBundleStatus: SawBundleStatus }) =>
-  job.status === 'ready' && (job.sawBundleStatus === 'waiting' || job.sawBundleStatus === 'bundling')
+// A TBA job (no booked delivery date) can't be cut until it's booked.
+export const canApproveForCutting = (job: { status: JobStatus; sawBundleStatus: SawBundleStatus; isTba: boolean }) =>
+  job.status === 'ready' && !job.isTba && (job.sawBundleStatus === 'waiting' || job.sawBundleStatus === 'bundling')
 
 // Returns false when the user declined to send an incomplete bundle.
 export async function approveForCuttingWithConfirm(jobRef: string): Promise<boolean> {

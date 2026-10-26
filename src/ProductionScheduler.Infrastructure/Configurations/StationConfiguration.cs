@@ -15,7 +15,7 @@ public class StationConfiguration : IEntityTypeConfiguration<Station>
         b.Property(x => x.PrdPath).HasMaxLength(500);
         b.Property(x => x.MpsPath).HasMaxLength(500);
         b.Property(x => x.ArchivePath).HasMaxLength(500);
-        b.Property(x => x.DailyEqATarget).HasPrecision(10, 4);
+        b.Property(x => x.EqaPerHour).HasPrecision(10, 4);
 
         b.HasIndex(x => new { x.ComponentType, x.IsActive })
             .HasDatabaseName("IX_Stations_ComponentType");
@@ -28,7 +28,7 @@ public class StationCapacityOverrideConfiguration : IEntityTypeConfiguration<Sta
     {
         b.ToTable("StationCapacityOverrides");
         b.HasKey(x => x.Id);
-        b.Property(x => x.EqATarget).HasPrecision(10, 4);
+        b.Property(x => x.Note).HasMaxLength(200);
 
         b.HasOne(x => x.Station)
             .WithMany(s => s.CapacityOverrides)

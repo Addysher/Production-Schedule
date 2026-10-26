@@ -33,6 +33,9 @@ public static class DatabaseSeeder
         ("SchFileSettleSeconds", "5"), // ignore an .sch file until it has been unchanged this long (Sapphire may still be writing it)
         ("NightlyMaintenanceRunHour", "1"), // not named in the doc ("configurable, default 01:00") — see NightlyMaintenanceService
         ("FreezeWindowDays", "3"), // v3.0 lock-out: today + this many working days are frozen; 0 = off (see FreezeWindow)
+        ("ProductionLeadDaysMin", "1"), // v3.0: a job must be finished at least this many working days before its booked delivery
+        ("ProductionLeadDaysMax", "5"), // ...and is not started more than this many working days before it (yard space); 0 = no limit
+        ("PencilTbaJobs", "true"), // v3.0: plan jobs with no booked delivery date (TBA, incl. quotes) as pencilled-in work
 
         // v3.0 email reports (§5.21, EmailReportService). A report with no recipient isn't sent.
         ("SmtpHost", ""),

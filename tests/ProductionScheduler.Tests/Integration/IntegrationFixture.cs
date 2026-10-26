@@ -83,7 +83,10 @@ public sealed class IntegrationFixture : IAsyncLifetime
         // The freeze window is off by default here so scheduling scenarios can move near-term work;
         // FreezeWindowTests turns it on for its own checks.
         await SetSettingsAsync(("ShiftStartHour", "0"), ("ShiftEndHour", "24"), ("WorkingDays", "0,1,2,3,4,5,6"), ("SchFileSettleSeconds", "0"),
-            ("FreezeWindowDays", "0"));
+            ("FreezeWindowDays", "0"),
+            // No delivery window and pencilling on, so a job with only rough dates is still planned from now;
+            // the v3.0 scheduler tests switch these on for their own checks.
+            ("ProductionLeadDaysMin", "0"), ("ProductionLeadDaysMax", "0"), ("PencilTbaJobs", "true"));
         // The working day comes from the active shifts when there are any; the seeded 06:00–18:00 shift is
         // switched off so the 24/7 Settings hours above apply (tests that need a shift add their own).
         await WithDbAsync(async db =>
@@ -133,13 +136,13 @@ public sealed class IntegrationFixture : IAsyncLifetime
     }
 
     // prdPath = the station's DataOut (PRD files), mpsPath = its DataIn (MPS files), archivePath = its Archive.
-    public Task<int> AddStationAsync(string name, string componentType, string? prdPath = null, string? mpsPath = null, string? archivePath = null, decimal? dailyEqATarget = null) =>
+    public Task<int> AddStationAsync(string name, string componentType, string? prdPath = null, string? mpsPath = null, string? archivePath = null, decimal? eqaPerHour = null) =>
         WithDbAsync(async db =>
         {
             var station = new Station
             {
                 Name = name, ComponentType = componentType, PrdPath = prdPath, MpsPath = mpsPath, ArchivePath = archivePath,
-                DailyEqATarget = dailyEqATarget, IsActive = true,
+                EqaPerHour = eqaPerHour, IsActive = true,
             };
             db.Stations.Add(station);
             await db.SaveChangesAsync();

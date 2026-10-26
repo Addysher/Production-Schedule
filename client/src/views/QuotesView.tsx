@@ -95,6 +95,8 @@ export function QuotesView() {
                 type="number"
                 min={1}
                 style={{ width: 80 }}
+                aria-label="EqA"
+                title="EqA for this line item"
                 value={line.qty}
                 onChange={(e) => updateLine(line.key, { qty: Number(e.target.value) })}
               />
@@ -125,7 +127,7 @@ export function QuotesView() {
             <thead>
               <tr>
                 <th>Job Type</th>
-                <th>Qty</th>
+                <th>EqA</th>
                 <th>Estimated Completion</th>
               </tr>
             </thead>

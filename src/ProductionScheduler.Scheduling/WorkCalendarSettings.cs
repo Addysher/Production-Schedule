@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
 
 namespace ProductionScheduler.Scheduling;
@@ -36,6 +37,61 @@ public sealed record WorkCalendarSettings(
 
         return day.AddDays(1); // the end of that working day
     }
+
+    // v3.0 delivery window (Settings → ProductionLeadDaysMin / Max, working days): a job should be finished
+    // at least LeadDaysMin working days before its delivery, and not started more than LeadDaysMax working
+    // days before it (0 = no limit), so finished work doesn't fill the yard.
+    public int LeadDaysMin { get; init; }
+    public int LeadDaysMax { get; init; }
+
+    // v3.0: jobs with no booked delivery date (TBA, including quotes) are planned as pencilled-in work.
+    public bool PencilTbaJobs { get; init; } = true;
+
+    // The working day as most lines see it, before any one-off change for a line.
+    public DayWindow? NormalWindow(DateOnly day) => WorkingDays.Contains((int)day.DayOfWeek) ? new DayWindow(DayStart, DayEnd) : null;
+
+    // One line's working hours on each day: its one-off changes (overtime hours, or closed) over the normal
+    // day. Overtime on a normally non-working day opens it, with the normal hours unless times are given.
+    public Func<DateOnly, DayWindow?> WindowFor(IReadOnlyDictionary<DateOnly, StationCapacityOverride>? overrides) => day =>
+    {
+        if (overrides is null || !overrides.TryGetValue(day, out var change))
+        {
+            return NormalWindow(day);
+        }
+
+        if (change.IsClosed)
+        {
+            return null;
+        }
+
+        var start = change.StartTime?.ToTimeSpan() ?? DayStart;
+        var end = change.EndTime is { } e ? (e == TimeOnly.MinValue ? TimeSpan.FromHours(24) : e.ToTimeSpan()) : DayEnd;
+        return end > start ? new DayWindow(start, end) : null;
+    };
+
+    // What a line can make on a day: its EqA per hour × that day's working hours after breaks.
+    public double DailyTargetEqa(double eqaPerHour, DayWindow? window) => eqaPerHour * WorkingCalendar.NetMinutes(window, Breaks) / 60;
+
+    // Steps back `count` working days from `day` (0 = the day itself).
+    public DateOnly WorkingDaysBefore(DateOnly day, int count)
+    {
+        for (var counted = 0; counted < count && WorkingDays.Count > 0;)
+        {
+            day = day.AddDays(-1);
+            if (WorkingDays.Contains((int)day.DayOfWeek))
+            {
+                counted++;
+            }
+        }
+
+        return day;
+    }
+
+    // The latest a job due on `due` should finish: the end of the day LeadDaysMin working days before it.
+    public DateTime LatestFinish(DateOnly due) => WorkingDaysBefore(due, LeadDaysMin).ToDateTime(TimeOnly.MinValue).AddDays(1);
+
+    // The earliest it may start: the start of the day LeadDaysMax working days before it (null = no limit).
+    public DateTime? EarliestStart(DateOnly due) => LeadDaysMax > 0 ? WorkingDaysBefore(due, LeadDaysMax).ToDateTime(TimeOnly.MinValue) : null;
 
     public static async Task<WorkCalendarSettings> LoadAsync(AppDbContext db, CancellationToken ct = default)
     {
@@ -86,6 +142,13 @@ public sealed record WorkCalendarSettings(
             .OrderBy(b => b.Start)
             .ToList();
 
-        return new WorkCalendarSettings(dayStart, dayEnd, workingDays, breaks, Math.Clamp(Int("FreezeWindowDays", 0), 0, 30));
+        var leadMin = Math.Clamp(Int("ProductionLeadDaysMin", 0), 0, 30);
+        var leadMax = Math.Clamp(Int("ProductionLeadDaysMax", 0), 0, 60);
+        return new WorkCalendarSettings(dayStart, dayEnd, workingDays, breaks, Math.Clamp(Int("FreezeWindowDays", 0), 0, 30))
+        {
+            LeadDaysMin = leadMin,
+            LeadDaysMax = leadMax > 0 && leadMax < leadMin ? leadMin : leadMax,
+            PencilTbaJobs = !string.Equals(settings.GetValueOrDefault("PencilTbaJobs", "true"), "false", StringComparison.OrdinalIgnoreCase),
+        };
     }
 }

@@ -8,9 +8,18 @@ export interface UpsertStationRequest {
   mpsPath: string | null
   isActive?: boolean
   displayOrder: number
-  dailyEqATarget: number | null
+  eqaPerHour: number | null
   archivePath: string | null
   factoryId: number | null
+}
+
+// Overtime (a different start and/or end, "HH:mm:ss") or closed, for one line on one day.
+export interface DayChange {
+  overrideDate: string
+  isClosed: boolean
+  startTime: string | null
+  endTime: string | null
+  note: string | null
 }
 
 export const stationsApi = {
@@ -22,10 +31,11 @@ export const stationsApi = {
   remove: (id: number) => apiClient.delete(`/stations/${id}`),
   getCapacityOverrides: (stationId: number) =>
     apiClient.get<CapacityOverrideDto[]>(`/stations/${stationId}/capacity-overrides`).then((r) => r.data),
-  createCapacityOverride: (stationId: number, overrideDate: string, eqATarget: number) =>
-    apiClient
-      .post<CapacityOverrideDto>(`/stations/${stationId}/capacity-overrides`, { overrideDate, eqATarget })
-      .then((r) => r.data),
+  createCapacityOverride: (stationId: number, change: DayChange) =>
+    apiClient.post<CapacityOverrideDto>(`/stations/${stationId}/capacity-overrides`, change).then((r) => r.data),
+  // A public holiday or site shutdown: the same change on every active line.
+  createForAllLines: (change: DayChange) =>
+    apiClient.post<CapacityOverrideDto[]>('/stations/capacity-overrides/all-lines', change).then((r) => r.data),
   deleteCapacityOverride: (stationId: number, overrideId: number) =>
     apiClient.delete(`/stations/${stationId}/capacity-overrides/${overrideId}`),
 }

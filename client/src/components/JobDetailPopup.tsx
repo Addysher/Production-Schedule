@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext'
 import { errorText } from './Modal'
 import type { JobDetailDto } from '../types/api'
 import { StatusPill } from './StatusPill'
+import { TbaTag } from './TbaTag'
 import { canApproveForCutting, sawFilesLabel } from './sawFiles'
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -68,6 +69,7 @@ export function JobDetailPopup({
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{job.componentType}</div>
           </div>
           <StatusPill status={job.status} isLate={job.isLate} />
+          {job.isTba && <TbaTag />}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>

@@ -16,7 +16,7 @@ public class SettingsController : ControllerBase
     private readonly ProductionScheduler.Scheduling.IScheduleGenerationService _scheduleGenerationService;
 
     // Settings that change the shape of the working calendar: the plan is redone when one is saved.
-    private static readonly HashSet<string> CalendarKeys = ["ShiftStartHour", "ShiftEndHour", "WorkingDays", "FreezeWindowDays"];
+    private static readonly HashSet<string> CalendarKeys = ["ShiftStartHour", "ShiftEndHour", "WorkingDays", "FreezeWindowDays", "ProductionLeadDaysMin", "ProductionLeadDaysMax", "PencilTbaJobs"];
 
     public SettingsController(AppDbContext db, ProductionScheduler.Scheduling.IScheduleGenerationService scheduleGenerationService)
     {

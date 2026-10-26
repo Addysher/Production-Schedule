@@ -142,7 +142,8 @@ public class ScheduleController : ControllerBase
         si.Segments.Count > 0
             ? si.Segments.OrderBy(s => s.SegmentStart).Select(s => new ScheduleSegmentDto(s.SegmentDate, s.SegmentStart, s.SegmentEnd, s.PlannedEqA)).ToList()
             : new List<ScheduleSegmentDto> { new(si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA) },
-        isFrozen);
+        isFrozen,
+        si.Job.BookedDeliveryDate is null); // TBA: pencilled in until the office books delivery
 
     private static string CsvEscape(string? value)
     {

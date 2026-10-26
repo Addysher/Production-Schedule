@@ -19,7 +19,7 @@ public class ScenarioE_NightlyTasksTests
 
     private static Job NewJob(string jobRef, string status) => new()
     {
-        JobRef = jobRef, ComponentType = "ScnE", DesignStatus = "FinalDesign", Status = status,
+        JobRef = jobRef, ComponentType = "ScnE", DesignStatus = "FinalDesign", Status = status, BookedDeliveryDate = SiteClock.Today.AddDays(30),
         CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
     };
 

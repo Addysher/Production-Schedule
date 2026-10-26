@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Api.Dtos;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
+using ProductionScheduler.Scheduling;
 
 namespace ProductionScheduler.Api.Controllers;
 
@@ -13,16 +14,58 @@ namespace ProductionScheduler.Api.Controllers;
 public class StationsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IScheduleGenerationService _scheduleGenerationService;
 
-    public StationsController(AppDbContext db)
+    public StationsController(AppDbContext db, IScheduleGenerationService scheduleGenerationService)
     {
         _db = db;
+        _scheduleGenerationService = scheduleGenerationService;
     }
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-    private static StationDto ToDto(Station s) =>
-        new(s.Id, s.Name, s.ComponentType, s.PrdPath, s.MpsPath, s.IsActive, s.DisplayOrder, s.DailyEqATarget, s.ArchivePath, s.FactoryId);
+    // Today's working hours for each line (with any one-off change) give today's target: EqA/h × hours.
+    private async Task<Func<Station, StationDto>> ToDtoAsync()
+    {
+        var calendar = await WorkCalendarSettings.LoadAsync(_db);
+        var today = DateOnly.FromDateTime(SiteClock.Now);
+        var changesToday = await _db.StationCapacityOverrides.AsNoTracking().Where(o => o.OverrideDate == today).ToDictionaryAsync(o => o.StationId);
+        return s =>
+        {
+            var change = changesToday.GetValueOrDefault(s.Id);
+            var window = calendar.WindowFor(change is null ? null : new Dictionary<DateOnly, StationCapacityOverride> { [today] = change })(today);
+            decimal? target = s.EqaPerHour is > 0 ? Math.Round((decimal)calendar.DailyTargetEqa((double)s.EqaPerHour.Value, window), 1) : null;
+            return new StationDto(s.Id, s.Name, s.ComponentType, s.PrdPath, s.MpsPath, s.IsActive, s.DisplayOrder, s.EqaPerHour, s.ArchivePath, s.FactoryId,
+                target, change is null ? null : Describe(change));
+        };
+    }
+
+    private static string Describe(StationCapacityOverride o) =>
+        o.IsClosed ? $"Closed{(o.Note is null ? "" : $" — {o.Note}")}"
+        : $"{o.StartTime?.ToString("HH:mm") ?? "normal start"}–{(o.EndTime == TimeOnly.MinValue ? "24:00" : o.EndTime?.ToString("HH:mm") ?? "normal end")}{(o.Note is null ? "" : $" — {o.Note}")}";
+
+    private static CapacityOverrideDto ToOverrideDto(StationCapacityOverride o) =>
+        new(o.Id, o.StationId, o.OverrideDate, o.IsClosed, o.StartTime, o.EndTime, o.Note);
+
+    // Saves, then re-plans in the same transaction: a change that leaves a line no working time for months
+    // is undone with the reason instead of breaking every later re-plan.
+    private async Task<string?> SaveAndReplanAsync()
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        await _db.SaveChangesAsync();
+        try
+        {
+            await _scheduleGenerationService.GenerateAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await transaction.RollbackAsync();
+            return ex.Message;
+        }
+
+        await transaction.CommitAsync();
+        return null;
+    }
 
     // Read access is open to any authenticated user — the calendar and dashboard (Viewer-visible)
     // render station columns/cards, even though station management itself is Admin-only.
@@ -30,28 +73,39 @@ public class StationsController : ControllerBase
     public async Task<ActionResult<List<StationDto>>> GetAll()
     {
         var stations = await _db.Stations.AsNoTracking().OrderBy(s => s.DisplayOrder).ToListAsync();
-        return stations.Select(ToDto).ToList();
+        var toDto = await ToDtoAsync();
+        return stations.Select(toDto).ToList();
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<StationDto>> GetById(int id)
     {
         var station = await _db.Stations.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id);
-        return station is null ? NotFound() : ToDto(station);
+        return station is null ? NotFound() : (await ToDtoAsync())(station);
+    }
+
+    private async Task<string?> ProblemAsync(string componentType, int? factoryId, decimal? eqaPerHour)
+    {
+        if (await ProductValidation.UnknownProductAsync(_db, componentType) is { } unknown)
+        {
+            return unknown;
+        }
+
+        if (factoryId is { } id && !await _db.Factories.AnyAsync(f => f.Id == id))
+        {
+            return $"Factory {id} doesn't exist.";
+        }
+
+        return eqaPerHour is <= 0 ? "Capacity must be more than 0 EqA per hour (or left blank)." : null;
     }
 
     [HttpPost]
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<StationDto>> Create(CreateStationRequest request)
     {
-        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        if (await ProblemAsync(request.ComponentType, request.FactoryId, request.EqaPerHour) is { } problem)
         {
-            return BadRequest(unknown);
-        }
-
-        if (request.FactoryId is { } factoryId && !await _db.Factories.AnyAsync(f => f.Id == factoryId))
-        {
-            return BadRequest($"Factory {factoryId} doesn't exist.");
+            return BadRequest(problem);
         }
 
         var station = new Station
@@ -61,14 +115,18 @@ public class StationsController : ControllerBase
             PrdPath = Blank(request.PrdPath),
             MpsPath = Blank(request.MpsPath),
             DisplayOrder = request.DisplayOrder,
-            DailyEqATarget = request.DailyEqATarget,
+            EqaPerHour = request.EqaPerHour,
             ArchivePath = Blank(request.ArchivePath),
             FactoryId = request.FactoryId,
             IsActive = true
         };
         _db.Stations.Add(station);
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetById), new { id = station.Id }, ToDto(station));
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
+        return CreatedAtAction(nameof(GetById), new { id = station.Id }, (await ToDtoAsync())(station));
     }
 
     [HttpPut("{id:int}")]
@@ -81,14 +139,9 @@ public class StationsController : ControllerBase
             return NotFound();
         }
 
-        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        if (await ProblemAsync(request.ComponentType, request.FactoryId, request.EqaPerHour) is { } problem)
         {
-            return BadRequest(unknown);
-        }
-
-        if (request.FactoryId is { } factoryId && !await _db.Factories.AnyAsync(f => f.Id == factoryId))
-        {
-            return BadRequest($"Factory {factoryId} doesn't exist.");
+            return BadRequest(problem);
         }
 
         station.Name = request.Name;
@@ -97,11 +150,15 @@ public class StationsController : ControllerBase
         station.MpsPath = Blank(request.MpsPath);
         station.IsActive = request.IsActive;
         station.DisplayOrder = request.DisplayOrder;
-        station.DailyEqATarget = request.DailyEqATarget;
+        station.EqaPerHour = request.EqaPerHour;
         station.ArchivePath = Blank(request.ArchivePath);
         station.FactoryId = request.FactoryId;
-        await _db.SaveChangesAsync();
-        return ToDto(station);
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
+        return (await ToDtoAsync())(station);
     }
 
     [HttpDelete("{id:int}")]
@@ -116,11 +173,38 @@ public class StationsController : ControllerBase
 
         // Deactivate rather than hard-delete — stations are referenced by historical ScheduleItems.
         station.IsActive = false;
-        await _db.SaveChangesAsync();
+        await SaveAndReplanAsync();
         return NoContent();
     }
 
-    // Readable by every role: the Dashboard shows today's override on each station card to Viewers too. Writes stay Admin-only.
+    // --- One-off changes to a line's working day: overtime hours, or closed (shutdown / public holiday) ---
+
+    private static string? OverrideProblem(UpsertCapacityOverrideRequest request)
+    {
+        if (request.IsClosed)
+        {
+            return null;
+        }
+
+        if (request.StartTime is null && request.EndTime is null)
+        {
+            return "Give the overtime hours (a start and/or end time), or mark the line closed.";
+        }
+
+        var end = request.EndTime == TimeOnly.MinValue ? TimeSpan.FromHours(24) : request.EndTime?.ToTimeSpan();
+        return request.StartTime is { } s && end is { } e && e <= s.ToTimeSpan() ? "The end time must be after the start time." : null;
+    }
+
+    private static void Apply(StationCapacityOverride entity, UpsertCapacityOverrideRequest request)
+    {
+        entity.OverrideDate = request.OverrideDate;
+        entity.IsClosed = request.IsClosed;
+        entity.StartTime = request.IsClosed ? null : request.StartTime;
+        entity.EndTime = request.IsClosed ? null : request.EndTime;
+        entity.Note = Blank(request.Note);
+    }
+
+    // Readable by every role: the Dashboard shows today's change on each line to Viewers too. Writes stay Admin-only.
     [HttpGet("{id:int}/capacity-overrides")]
     public async Task<ActionResult<List<CapacityOverrideDto>>> GetCapacityOverrides(int id)
     {
@@ -129,7 +213,7 @@ public class StationsController : ControllerBase
             .Where(o => o.StationId == id)
             .OrderBy(o => o.OverrideDate)
             .ToListAsync();
-        return overrides.Select(o => new CapacityOverrideDto(o.Id, o.StationId, o.OverrideDate, o.EqATarget)).ToList();
+        return overrides.Select(ToOverrideDto).ToList();
     }
 
     [HttpPost("{id:int}/capacity-overrides")]
@@ -141,16 +225,60 @@ public class StationsController : ControllerBase
             return NotFound();
         }
 
-        var entity = new StationCapacityOverride
+        if (OverrideProblem(request) is { } problem)
         {
-            StationId = id,
-            OverrideDate = request.OverrideDate,
-            EqATarget = request.EqATarget,
-            CreatedAt = SiteClock.Now
-        };
+            return BadRequest(problem);
+        }
+
+        if (await _db.StationCapacityOverrides.AnyAsync(o => o.StationId == id && o.OverrideDate == request.OverrideDate))
+        {
+            return Conflict($"This line already has a change on {request.OverrideDate:ddd d MMM}; edit or remove that one.");
+        }
+
+        var entity = new StationCapacityOverride { StationId = id, CreatedAt = SiteClock.Now };
+        Apply(entity, request);
         _db.StationCapacityOverrides.Add(entity);
-        await _db.SaveChangesAsync();
-        return new CapacityOverrideDto(entity.Id, entity.StationId, entity.OverrideDate, entity.EqATarget);
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
+        return ToOverrideDto(entity);
+    }
+
+    // A public holiday or site shutdown: the same change on every active line at once (replacing any change
+    // those lines already had that day).
+    [HttpPost("capacity-overrides/all-lines")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<List<CapacityOverrideDto>>> CreateForAllLines(UpsertCapacityOverrideRequest request)
+    {
+        if (OverrideProblem(request) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
+        var lineIds = await _db.Stations.Where(s => s.IsActive).Select(s => s.Id).ToListAsync();
+        var existing = await _db.StationCapacityOverrides.Where(o => o.OverrideDate == request.OverrideDate && lineIds.Contains(o.StationId)).ToListAsync();
+        var result = new List<StationCapacityOverride>();
+        foreach (var lineId in lineIds)
+        {
+            var entity = existing.FirstOrDefault(o => o.StationId == lineId);
+            if (entity is null)
+            {
+                entity = new StationCapacityOverride { StationId = lineId, CreatedAt = SiteClock.Now };
+                _db.StationCapacityOverrides.Add(entity);
+            }
+
+            Apply(entity, request);
+            result.Add(entity);
+        }
+
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
+        return result.Select(ToOverrideDto).ToList();
     }
 
     [HttpPut("{id:int}/capacity-overrides/{overrideId:int}")]
@@ -163,10 +291,18 @@ public class StationsController : ControllerBase
             return NotFound();
         }
 
-        entity.OverrideDate = request.OverrideDate;
-        entity.EqATarget = request.EqATarget;
-        await _db.SaveChangesAsync();
-        return new CapacityOverrideDto(entity.Id, entity.StationId, entity.OverrideDate, entity.EqATarget);
+        if (OverrideProblem(request) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
+        Apply(entity, request);
+        if (await SaveAndReplanAsync() is { } noWorkingTime)
+        {
+            return BadRequest(noWorkingTime);
+        }
+
+        return ToOverrideDto(entity);
     }
 
     [HttpDelete("{id:int}/capacity-overrides/{overrideId:int}")]
@@ -180,7 +316,7 @@ public class StationsController : ControllerBase
         }
 
         _db.StationCapacityOverrides.Remove(entity);
-        await _db.SaveChangesAsync();
+        await SaveAndReplanAsync();
         return NoContent();
     }
 }

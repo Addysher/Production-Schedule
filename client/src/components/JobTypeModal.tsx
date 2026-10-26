@@ -7,16 +7,15 @@ import { ProductSelect } from './ProductSelect'
 export function JobTypeModal({ jobType, onClose, onSaved }: { jobType?: JobTypeDto; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(jobType?.name ?? '')
   const [componentType, setComponentType] = useState(jobType?.componentType ?? '')
-  const [minsPerUnit, setMinsPerUnit] = useState(jobType?.minsPerUnit?.toString() ?? '')
   const [isActive, setIsActive] = useState(jobType?.isActive ?? true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   async function save() {
-    if (!name.trim() || !(Number(minsPerUnit) > 0)) return setError('A name and a cycle time above zero are required.')
+    if (!name.trim()) return setError('A name is required.')
     setSaving(true)
     setError(null)
-    const body = { name: name.trim(), componentType: componentType.trim() || null, minsPerUnit: Number(minsPerUnit), isActive }
+    const body = { name: name.trim(), componentType: componentType.trim() || null, isActive }
     try {
       if (jobType) await jobTypesApi.update(jobType.id, body)
       else await jobTypesApi.create(body)
@@ -47,11 +46,8 @@ export function JobTypeModal({ jobType, onClose, onSaved }: { jobType?: JobTypeD
         <Field label="Name">
           <input style={{ width: '100%' }} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
-        <Field label="Product" hint="Sets the cycle time for this product's jobs on the schedule">
+        <Field label="Product" hint="A Quote Estimator line item for this product. How fast it is made comes from the product's lines (Stations → Capacity)">
           <ProductSelect value={componentType} onChange={setComponentType} allowNone />
-        </Field>
-        <Field label="Minutes per unit" hint="Cycle time per EqA — drives job durations in both the schedule and the Quote Estimator">
-          <input type="number" step="0.1" style={{ width: '100%' }} value={minsPerUnit} onChange={(e) => setMinsPerUnit(e.target.value)} />
         </Field>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />

@@ -393,10 +393,6 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
-                    b.Property<decimal>("MinsPerUnit")
-                        .HasPrecision(8, 2)
-                        .HasColumnType("decimal(8,2)");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -786,12 +782,12 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<decimal?>("DailyEqATarget")
-                        .HasPrecision(10, 4)
-                        .HasColumnType("decimal(10,4)");
-
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("int");
+
+                    b.Property<decimal?>("EqaPerHour")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("decimal(10,4)");
 
                     b.Property<int?>("FactoryId")
                         .HasColumnType("int");
@@ -833,12 +829,21 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<decimal>("EqATarget")
-                        .HasPrecision(10, 4)
-                        .HasColumnType("decimal(10,4)");
+                    b.Property<TimeOnly?>("EndTime")
+                        .HasColumnType("time");
+
+                    b.Property<bool>("IsClosed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<DateOnly>("OverrideDate")
                         .HasColumnType("date");
+
+                    b.Property<TimeOnly?>("StartTime")
+                        .HasColumnType("time");
 
                     b.Property<int>("StationId")
                         .HasColumnType("int");

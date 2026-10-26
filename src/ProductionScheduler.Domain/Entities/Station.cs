@@ -10,8 +10,9 @@ public class Station
     public bool IsActive { get; set; } = true;
     public int DisplayOrder { get; set; }
 
-    // Referenced in §7 (AdminController CRUD, dashboard cards) but not listed in the §4.2 table body.
-    public decimal? DailyEqATarget { get; set; }
+    // v3.0: how much the line makes per working hour. Job length = EqA ÷ this; a day's target = this × its
+    // working hours (after breaks). NULL = not set (the scheduler then assumes 60 EqA/h, 1 minute per EqA).
+    public decimal? EqaPerHour { get; set; }
     public string? ArchivePath { get; set; } // "Archive": MPS files of completed and deleted jobs
 
     public int? FactoryId { get; set; } // v3.0: which factory's kiosk shows it; NULL = not assigned

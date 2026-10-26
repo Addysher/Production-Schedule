@@ -119,9 +119,6 @@ export function KioskView() {
           return
         }
         const mine = stations.filter((s) => s.isActive && factory.stationIds.includes(s.id)).sort((a, b) => a.displayOrder - b.displayOrder)
-        const overrides = await Promise.all(
-          mine.map(async (s) => [s.id, (await stationsApi.getCapacityOverrides(s.id)).find((o) => o.overrideDate.slice(0, 10) === today)?.eqATarget] as const),
-        )
         setData({
           factory,
           stations: mine,
@@ -129,7 +126,7 @@ export function KioskView() {
           jobs,
           progress,
           produced: Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])),
-          targets: Object.fromEntries(mine.map((s) => [s.id, overrides.find(([id]) => id === s.id)?.[1] ?? s.dailyEqATarget])),
+          targets: Object.fromEntries(mine.map((s) => [s.id, s.todayTargetEqa])),
           loadedAt: new Date(),
         })
         setError(null)

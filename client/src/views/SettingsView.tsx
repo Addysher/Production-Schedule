@@ -336,6 +336,9 @@ const SETTING_HINTS: Record<string, string> = {
   MpsPreMoveDaysBeforeProduction: 'MPS files are sent to the station this many working days before production',
   SchFileSettleSeconds: 'An SCH or MME file is only picked up once it has been unchanged this long (still being written)',
   NightlyMaintenanceRunHour: 'Hour of the night the maintenance tasks (and the MPS send) run',
+  ProductionLeadDaysMin: 'A job must be finished at least this many working days before its booked delivery',
+  ProductionLeadDaysMax: 'A job is not started more than this many working days before its booked delivery (yard space). 0 = no limit',
+  PencilTbaJobs: 'true = jobs with no booked delivery date (TBA, incl. quotes) are pencilled into the schedule by their expected date; false = they wait off the schedule',
   FreezeWindowDays: 'Lock-out: jobs starting today and the next this-many working days can’t be moved. 0 = off',
 }
 

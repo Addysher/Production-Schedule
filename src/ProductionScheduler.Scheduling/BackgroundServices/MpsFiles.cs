@@ -77,7 +77,8 @@ public static class MpsFiles
                 .Include(j => j.AssignedStation)
                 .Where(j => !j.IsArchived && j.MpsStationId == null && j.MpsArchivedAt == null
                     && j.AssignedStationId != null && j.EstimatedStartDate != null
-                    && (NotStarted.Contains(j.Status) || j.Status == "in-production"))
+                    // A TBA job (no booked delivery date) isn't sent to a line until it's booked (v3.0).
+                    && ((NotStarted.Contains(j.Status) && j.BookedDeliveryDate != null) || j.Status == "in-production"))
                 .ToListAsync(ct))
             .Where(j => DateOnly.FromDateTime(j.EstimatedStartDate!.Value) <= horizon)
             .ToList();

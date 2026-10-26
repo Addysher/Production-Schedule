@@ -207,6 +207,7 @@ export function CalendarView() {
       window.alert(
         `Recalculated: ${result.jobsScheduled} job(s) scheduled` +
           (result.jobsFrozen ? `, ${result.jobsFrozen} frozen in place` : '') +
+          (result.jobsPencilled ? `, ${result.jobsPencilled} pencilled in (TBA)` : '') +
           (result.jobsSkipped ? `, ${result.jobsSkipped} skipped (no matching station/capacity)` : '') +
           '.',
       )
@@ -547,16 +548,16 @@ export function CalendarView() {
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Station EqA today</div>
               {stations.map((s) => {
                 const done = producedToday[s.id] ?? 0
-                const pct = s.dailyEqATarget ? Math.min((done / s.dailyEqATarget) * 100, 100) : 0
+                const pct = s.todayTargetEqa ? Math.min((done / s.todayTargetEqa) * 100, 100) : 0
                 return (
                   <div key={s.id} style={{ fontSize: 12, marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>{s.name}</span>
                       <span>
-                        {done.toFixed(1)} / {s.dailyEqATarget ?? '—'}
+                        {done.toFixed(1)} / {s.todayTargetEqa ?? '—'}
                       </span>
                     </div>
-                    {s.dailyEqATarget ? (
+                    {s.todayTargetEqa ? (
                       <div style={{ height: 6, background: 'var(--border-subtle)', borderRadius: 3, marginTop: 3 }}>
                         <div style={{ height: 6, width: `${pct}%`, background: 'var(--brand-primary)', borderRadius: 3 }} />
                       </div>

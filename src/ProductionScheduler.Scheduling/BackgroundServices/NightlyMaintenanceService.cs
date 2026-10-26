@@ -59,6 +59,12 @@ public class NightlyMaintenanceService : BackgroundService
         await SafeRun(db, "Task 1 — Move MPS to DataIn", () => MpsFiles.SendDueAsync(db, ct), ct);
         await SafeRun(db, "Task 2 — Archive DONE saw folders", () => ArchiveDoneFoldersAsync(db, ct), ct);
         await SafeRun(db, "Task 5 — Retention archiving", () => ArchiveOldRecordsAsync(db, ct), ct);
+
+        // A new day: re-plan, so yesterday's leftovers move on and the delivery windows roll forward.
+        if (scope.ServiceProvider.GetService<IScheduleGenerationService>() is { } scheduler)
+        {
+            await SafeRun(db, "Nightly re-plan", () => scheduler.GenerateAsync(ct), ct);
+        }
     }
 
     private async Task SafeRun(AppDbContext db, string taskLabel, Func<Task> task, CancellationToken ct)

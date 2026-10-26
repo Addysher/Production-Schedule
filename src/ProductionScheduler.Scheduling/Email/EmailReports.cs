@@ -127,7 +127,9 @@ public static class EmailReports
             .ToDictionaryAsync(r => r.StationId, r => r.Eqa, ct);
 
         var stations = await db.Stations.AsNoTracking().Where(s => s.IsActive || made.Keys.Contains(s.Id)).OrderBy(s => s.DisplayOrder).ThenBy(s => s.Name).ToListAsync(ct);
-        var overrides = await db.StationCapacityOverrides.AsNoTracking().Where(o => o.OverrideDate == today).ToDictionaryAsync(o => o.StationId, o => o.EqATarget, ct);
+        // Each line's target for the day: its EqA per hour × today's working hours (with any one-off change).
+        var calendar = await WorkCalendarSettings.LoadAsync(db, ct);
+        var changes = await db.StationCapacityOverrides.AsNoTracking().Where(o => o.OverrideDate == today).ToDictionaryAsync(o => o.StationId, ct);
 
         var finished = await db.ScheduleItems.AsNoTracking()
             .Where(i => i.ActualEnd >= start && i.ActualEnd < end)
@@ -140,7 +142,8 @@ public static class EmailReports
         var stationRows = stations.Select(s =>
         {
             var eqa = made.GetValueOrDefault(s.Id);
-            var target = overrides.TryGetValue(s.Id, out var o) ? o : s.DailyEqATarget;
+            var window = calendar.WindowFor(changes.TryGetValue(s.Id, out var o) ? new Dictionary<DateOnly, Domain.Entities.StationCapacityOverride> { [today] = o } : null)(today);
+            decimal? target = s.EqaPerHour is > 0 ? (decimal)calendar.DailyTargetEqa((double)s.EqaPerHour.Value, window) : null;
             return new[]
             {
                 s.Name, eqa.ToString("0.##"), target?.ToString("0.##") ?? "—",

@@ -26,12 +26,18 @@ public class JobsController : ControllerBase
         _jobStatusService = jobStatusService;
     }
 
+    // v3.0: the booked delivery date is the deadline; without one the job is TBA and its rough date
+    // (est. booked, else expected delivery) stands in.
+    private static DateOnly? DueDateOf(Job j) => j.BookedDeliveryDate ?? j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate;
+
+    private static bool IsTba(Job j) => j.BookedDeliveryDate is null;
+
     private async Task<JobDetailDto> ToDetailDtoAsync(Job j) =>
         ToDetailDto(j, (await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(j.JobRef), await _db.JobMembers.CountAsync(m => m.JobRef == j.JobRef));
 
     private static JobDetailDto ToDetailDto(Job j, bool isFrozen, int memberCount)
     {
-        var isLate = JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, SiteClock.Now);
+        var isLate = JobStatusService.IsLate(DueDateOf(j), j.Status, SiteClock.Now);
         return new JobDetailDto(
             j.Id, j.JobRef, j.ComponentType, j.ClientName, j.SiteAddress, j.SiteSuburb,
             j.SupervisorName, j.SupervisorNumber, j.JobOrderDate, j.JobOrderTime,
@@ -39,7 +45,7 @@ public class JobsController : ControllerBase
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
             j.InvoiceNumber, j.Delivered, j.Status, isLate, j.DesignStatus,
             j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType, isFrozen, j.ClientRefNumber,
-            j.SawBundleStatus, j.SawFileCount, memberCount);
+            j.SawBundleStatus, j.SawFileCount, memberCount, IsTba(j));
     }
 
     [HttpGet]
@@ -62,7 +68,7 @@ public class JobsController : ControllerBase
         var frozen = await FreezeWindow.FrozenJobRefsAsync(_db);
         return jobs.Select(j =>
             {
-                var dueDate = j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate;
+                var dueDate = DueDateOf(j);
                 return new JobSummaryDto(
                     j.Id, j.JobRef, j.ComponentType, j.ClientName, j.AssignedStationId, j.AssignedStation?.Name,
                     dueDate, j.TotalEqA, j.Status,
@@ -70,7 +76,7 @@ public class JobsController : ControllerBase
                     j.EstimatedCompletionDate,
                     JobStatusService.IsAtRisk(j.EstimatedCompletionDate, dueDate, j.Status, now, atRiskBufferMinutes),
                     JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now),
-                    frozen.Contains(j.JobRef), j.SawBundleStatus, j.IsArchived);
+                    frozen.Contains(j.JobRef), j.SawBundleStatus, j.IsArchived, IsTba(j));
             })
             .ToList();
     }
@@ -202,6 +208,11 @@ public class JobsController : ControllerBase
         if (job.Status != "ready")
         {
             return BadRequest($"Job '{jobRef}' is not in 'ready' status (currently '{job.Status}').");
+        }
+
+        if (job.BookedDeliveryDate is null)
+        {
+            return BadRequest($"Job '{jobRef}' is TBA: enter its booked delivery date before it can be cut.");
         }
 
         var settings = await _db.Settings.AsNoTracking().ToDictionaryAsync(s => s.Key, s => s.Value);

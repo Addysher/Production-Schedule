@@ -81,21 +81,21 @@ public class EmailReportTests
     [Fact]
     public async Task DailyProduction_TotalsWhatWasMadeToday()
     {
-        var stationId = await _f.AddStationAsync("Mail Made Line", "MailMade", dailyEqATarget: 40);
+        var stationId = await _f.AddStationAsync("Mail Made Line", "MailMade", eqaPerHour: 2); // 48 Eq over the test calendar's 24 h day
         await _f.WithDbAsync(async db =>
         {
             var job = NewJob("MAIL-MADE", "FinalDesign", 5);
             job.ComponentType = "MailMade";
             job.AssignedStationId = stationId;
-            job.Members = [new JobMember { JobRef = "MAIL-MADE", MemberId = "E01", EqaValue = 20, Done = true, CompletedAt = SiteClock.Now, CompletedEqA = 20 }];
+            job.Members = [new JobMember { JobRef = "MAIL-MADE", MemberId = "E01", EqaValue = 24, Done = true, CompletedAt = SiteClock.Now, CompletedEqA = 24 }];
             db.Jobs.Add(job);
             await db.SaveChangesAsync();
         });
 
         var report = await BuildAsync(EmailReports.DailyProduction);
 
-        // That station's own row: 20 made of a 40 Eq target.
-        Assert.Matches(@"<td[^>]*>Mail Made Line</td><td[^>]*>20</td><td[^>]*>40</td><td[^>]*>50%</td>", report.HtmlBody);
+        // That station's own row: 24 made of a 48 Eq target (2 Eq/h × 24 h).
+        Assert.Matches(@"<td[^>]*>Mail Made Line</td><td[^>]*>24</td><td[^>]*>48</td><td[^>]*>50%</td>", report.HtmlBody);
     }
 
     [Fact]

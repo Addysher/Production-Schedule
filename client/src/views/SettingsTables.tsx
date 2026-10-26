@@ -53,7 +53,7 @@ export function StationsSection() {
             <th>PRD folder (DataOut)</th>
             <th>MPS folder (DataIn)</th>
             <th>Archive folder</th>
-            <th>Daily EqA</th>
+            <th>EqA / hour</th>
             <th>Active</th>
             <th></th>
           </tr>
@@ -67,7 +67,10 @@ export function StationsSection() {
               <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.prdPath ?? '—'}</td>
               <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.mpsPath ?? '—'}</td>
               <td style={{ wordBreak: 'break-all', fontSize: 12 }}>{s.archivePath ?? '—'}</td>
-              <td>{s.dailyEqATarget ?? '—'}</td>
+              <td title={s.todayChange ?? undefined}>
+                {s.eqaPerHour ?? '—'}
+                {s.todayChange && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Today: {s.todayChange}</div>}
+              </td>
               <td>{s.isActive ? 'Yes' : 'No'}</td>
               <td>
                 <button className="btn btn-secondary" style={editButton} onClick={() => setEditing(s)}>
@@ -120,7 +123,6 @@ export function JobTypesSection() {
           <tr>
             <th>Name</th>
             <th>Product</th>
-            <th>Mins / unit</th>
             <th>Active</th>
             <th></th>
           </tr>
@@ -130,7 +132,6 @@ export function JobTypesSection() {
             <tr key={t.id} style={{ opacity: t.isActive ? 1 : 0.55 }}>
               <td>{t.name}</td>
               <td>{t.componentType ?? '—'}</td>
-              <td>{t.minsPerUnit}</td>
               <td>{t.isActive ? 'Yes' : 'No'}</td>
               <td>
                 <button className="btn btn-secondary" style={editButton} onClick={() => setEditing(t)}>
@@ -141,7 +142,7 @@ export function JobTypesSection() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
+              <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
                 No job types yet
               </td>
             </tr>

@@ -57,6 +57,7 @@ public class NightlyMaintenanceServiceTests : IDisposable
     private static Job NewJob(string jobRef) => new()
     {
         JobRef = jobRef,
+        BookedDeliveryDate = DateOnly.FromDateTime(DateTime.Now).AddDays(30), // called up, so its MPS may go to the line
         ComponentType = "WallFrames",
         DesignStatus = "FinalDesign",
         Status = "ready",

@@ -18,7 +18,7 @@ public class JobTypesController : ControllerBase
         _db = db;
     }
 
-    private static JobTypeDto ToDto(JobType jt) => new(jt.Id, jt.Name, jt.ComponentType, jt.MinsPerUnit, jt.IsActive);
+    private static JobTypeDto ToDto(JobType jt) => new(jt.Id, jt.Name, jt.ComponentType, jt.IsActive);
 
     // Read access is open to any authenticated user — the Quote Estimator (§5.5) needs the job type
     // list for its dropdown and is available to any logged-in user, not just Admins.
@@ -49,7 +49,6 @@ public class JobTypesController : ControllerBase
         {
             Name = request.Name,
             ComponentType = request.ComponentType,
-            MinsPerUnit = request.MinsPerUnit,
             IsActive = request.IsActive
         };
         _db.JobTypes.Add(jobType);
@@ -74,7 +73,6 @@ public class JobTypesController : ControllerBase
 
         jobType.Name = request.Name;
         jobType.ComponentType = request.ComponentType;
-        jobType.MinsPerUnit = request.MinsPerUnit;
         jobType.IsActive = request.IsActive;
         await _db.SaveChangesAsync();
         return ToDto(jobType);

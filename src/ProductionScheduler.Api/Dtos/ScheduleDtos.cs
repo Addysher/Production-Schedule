@@ -8,7 +8,7 @@ public record ScheduleItemDto(
     DateOnly ScheduleDate, DateTime PlannedStart, DateTime PlannedEnd, decimal PlannedEqA, int MembersTotal,
     DateTime? ActualStart, DateTime? ActualEnd, decimal EqaCompleted, int MembersCompleted,
     bool CreepDetected, DateTime? CreepApprovedAt, string JobStatus,
-    List<ScheduleSegmentDto> Segments, bool IsFrozen);
+    List<ScheduleSegmentDto> Segments, bool IsFrozen, bool IsTba);
 
 public record BreakDto(string Start, string End);
 

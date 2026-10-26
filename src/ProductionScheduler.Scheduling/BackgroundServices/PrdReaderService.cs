@@ -70,23 +70,31 @@ public class PrdReaderService : BackgroundService
         var stations = await db.Stations.Where(s => s.IsActive && s.PrdPath != null && s.PrdPath != "").ToListAsync(ct);
         var today = DateOnly.FromDateTime(_now());
 
+        var eventsRead = 0;
         foreach (var station in stations)
         {
             // Yesterday's file first: events PaperlessJig wrote after the last poll before midnight
             // would otherwise never be read, and their jobs could never complete.
-            await ReadStationFileAsync(db, station, today.AddDays(-1), ct);
-            await ReadStationFileAsync(db, station, today, ct);
+            eventsRead += await ReadStationFileAsync(db, station, today.AddDays(-1), ct);
+            eventsRead += await ReadStationFileAsync(db, station, today, ct);
         }
 
         await RunCreepDetectionAsync(db, ct);
+
+        // The feedback loop (v3.0): what the floor has actually made re-plans everything behind it.
+        if (eventsRead > 0 && scope.ServiceProvider.GetService<IScheduleGenerationService>() is { } scheduler)
+        {
+            await scheduler.GenerateAsync(ct);
+        }
     }
 
-    private async Task ReadStationFileAsync(AppDbContext db, Station station, DateOnly today, CancellationToken ct)
+    // Returns how many production events were read.
+    private async Task<int> ReadStationFileAsync(AppDbContext db, Station station, DateOnly today, CancellationToken ct)
     {
         var filePath = Path.Combine(station.PrdPath!, $"{today:yyyyMMdd}.prd");
         if (!File.Exists(filePath))
         {
-            return;
+            return 0;
         }
 
         // PaperlessJig keeps appending to this file while we read it — share for read+write.
@@ -112,7 +120,7 @@ public class PrdReaderService : BackgroundService
         var readState = await db.PrdReadStates.FirstOrDefaultAsync(r => r.StationId == station.Id && r.FileDate == today, ct);
         if (readState is not null && readState.LastLineRead >= lines.Count)
         {
-            return; // nothing new
+            return 0; // nothing new
         }
 
         // One transaction per file read: member updates, job progress and the read position commit
@@ -156,6 +164,7 @@ public class PrdReaderService : BackgroundService
         readState.LastProcessedAt = _now();
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        return processedEvents;
     }
 
     // Returns the event name on the line (null for blank lines) so the caller can tally unknown events.

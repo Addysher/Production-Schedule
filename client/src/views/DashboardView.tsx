@@ -6,9 +6,10 @@ import { stationsApi } from '../api/stations'
 import { logsApi } from '../api/logs'
 import { reportsApi } from '../api/reports'
 import { useAuth } from '../auth/AuthContext'
-import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, CapacityOverrideDto, UpdateJobRequest, StationProgressDto } from '../types/api'
+import type { JobSummaryDto, JobDetailDto, ScheduleItemDto, StationDto, UpdateJobRequest, StationProgressDto } from '../types/api'
 import type { MaintenanceLogDto } from '../types/logs'
 import { StatusPill } from '../components/StatusPill'
+import { TbaTag } from '../components/TbaTag'
 import { CreepBadge } from '../components/CreepBadge'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
@@ -57,7 +58,6 @@ export function DashboardView() {
   const [jobs, setJobs] = useState<JobSummaryDto[]>([])
   const [items, setItems] = useState<ScheduleItemDto[]>([])
   const [stations, setStations] = useState<StationDto[]>([])
-  const [overridesByStation, setOverridesByStation] = useState<Record<number, CapacityOverrideDto[]>>({})
   const [logs, setLogs] = useState<MaintenanceLogDto[]>([])
   const [producedToday, setProducedToday] = useState<Record<number, number>>({})
   const [progress, setProgress] = useState<StationProgressDto[]>([])
@@ -82,14 +82,6 @@ export function DashboardView() {
     setStations(stationList.filter((s) => s.isActive))
     setLogs(recentLogs)
     setProducedToday(Object.fromEntries(produced.map((r) => [r.stationId, r.eqa])))
-
-    const today = localIsoDate(new Date())
-    const overrideEntries = await Promise.all(
-      stationList
-        .filter((s) => s.isActive)
-        .map(async (s) => [s.id, (await stationsApi.getCapacityOverrides(s.id)).filter((o) => o.overrideDate.slice(0, 10) === today)] as const),
-    )
-    setOverridesByStation(Object.fromEntries(overrideEntries))
   }
 
   // After a change made here: reload, and let the rest of the shell (the sidebar's late count) follow.
@@ -203,9 +195,8 @@ export function DashboardView() {
                 .filter((i) => !i.actualStart)
                 .sort((a, b) => a.plannedStart.localeCompare(b.plannedStart))[0]
               const hasLate = stationItems.some((i) => jobs.find((j) => j.jobRef === i.jobRef)?.isLate)
-              // §7: actual vs target, with a capacity-override indicator when one applies today.
-              const todayOverride = overridesByStation[station.id]?.[0]
-              const target = todayOverride?.eqATarget ?? station.dailyEqATarget
+              // §7: made today vs the line's target (EqA/h × today's hours), flagged when today's hours are changed.
+              const target = station.todayTargetEqa
 
               return (
                 <div
@@ -215,9 +206,9 @@ export function DashboardView() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <span style={{ fontWeight: 700 }}>{station.name}</span>
-                    {todayOverride && (
+                    {station.todayChange && (
                       <span
-                        title={`Capacity override for today: ${todayOverride.eqATarget} Eq (normally ${station.dailyEqATarget ?? 'unset'})`}
+                        title={`Today: ${station.todayChange}`}
                         style={{
                           fontSize: 10,
                           fontWeight: 700,
@@ -227,7 +218,7 @@ export function DashboardView() {
                           color: 'var(--badge-new-text)',
                         }}
                       >
-                        OVERRIDE
+                        {station.todayChange.startsWith('Closed') ? 'CLOSED' : 'OVERTIME'}
                       </span>
                     )}
                   </div>
@@ -280,6 +271,7 @@ export function DashboardView() {
                     <td>{j.dueDate ?? '—'}</td>
                     <td>
                       <StatusPill status={j.status} isLate={j.isLate} />
+                      {j.isTba && <TbaTag />}
                     </td>
                     <td style={{ fontSize: 12 }}>
                       {[j.isLate && 'Past due', j.isBehindSchedule && 'Behind schedule', j.isAtRisk && 'At risk'].filter(Boolean).join(' · ') || '—'}
@@ -318,20 +310,15 @@ export function DashboardView() {
         <CollapsibleSidePanel viewKey="dashboard" title="Details">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Active capacity overrides</div>
-              {Object.entries(overridesByStation).flatMap(([stationId, overrides]) =>
-                overrides.map((o) => {
-                  const station = stations.find((s) => s.id === Number(stationId))
-                  return (
-                    <div key={o.id} style={{ fontSize: 12, marginBottom: 4 }}>
-                      {station?.name}: {o.eqATarget} Eq
-                    </div>
-                  )
-                }),
-              )}
-              {Object.values(overridesByStation).every((o) => o.length === 0) && (
-                <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None today</div>
-              )}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Line changes today</div>
+              {stations
+                .filter((s) => s.todayChange)
+                .map((s) => (
+                  <div key={s.id} style={{ fontSize: 12, marginBottom: 4 }}>
+                    {s.name}: {s.todayChange}
+                  </div>
+                ))}
+              {stations.every((s) => !s.todayChange) && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>None today</div>}
             </div>
 
             <div>

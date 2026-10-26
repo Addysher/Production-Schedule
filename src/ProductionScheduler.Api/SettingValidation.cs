@@ -23,6 +23,8 @@ public static partial class SettingValidation
         ["ScheduleRetentionMonths"] = (1, 120),
         ["AtRiskBufferMinutes"] = (0, 100_000),
         ["FreezeWindowDays"] = (0, 30),
+        ["ProductionLeadDaysMin"] = (0, 30),
+        ["ProductionLeadDaysMax"] = (0, 60),
         ["EmailNextDayJobsHour"] = (0, 23),
         ["EmailReadyForProductionHour"] = (0, 23),
         ["EmailDailyProductionHour"] = (0, 23),
@@ -56,6 +58,21 @@ public static partial class SettingValidation
                 }
             }
 
+            // Finish at least Min and start no more than Max working days before delivery (Max 0 = no limit).
+            if (key is "ProductionLeadDaysMin" or "ProductionLeadDaysMax")
+            {
+                var other = key == "ProductionLeadDaysMin" ? "ProductionLeadDaysMax" : "ProductionLeadDaysMin";
+                var otherValue = await db.Settings.Where(s => s.Key == other).Select(s => s.Value).FirstOrDefaultAsync();
+                if (int.TryParse(otherValue, out var o))
+                {
+                    var (min, max) = key == "ProductionLeadDaysMin" ? (n, o) : (o, n);
+                    if (max > 0 && min > max)
+                    {
+                        return $"The minimum days before delivery ({min}) can't be more than the maximum ({max}).";
+                    }
+                }
+            }
+
             return null;
         }
 
@@ -65,6 +82,7 @@ public static partial class SettingValidation
             "ThemeMode" when value is not ("system" or "light" or "dark") => "ThemeMode must be system, light or dark.",
             "ThemePrimaryColor" or "ThemeSecondaryColor" when !HexColour().IsMatch(value) => $"{key} must be a colour like #0a5e73.",
             "SmtpUseSsl" when value is not ("true" or "false") => "SmtpUseSsl must be true or false.",
+            "PencilTbaJobs" when value is not ("true" or "false") => "PencilTbaJobs must be true or false.",
             "SmtpFromAddress" when value.Length > 0 && !IsEmailAddress(value) => $"'{value}' isn't an email address.",
             "EmailNextDayJobsTo" or "EmailReadyForProductionTo" or "EmailDailyProductionTo" => RecipientsProblem(value),
             _ => null,

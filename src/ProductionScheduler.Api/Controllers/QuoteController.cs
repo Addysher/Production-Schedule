@@ -18,8 +18,8 @@ public class QuoteController : ControllerBase
         _db = db;
     }
 
-    // Purely time-based per §8.3 — queue length + duration × quantity. Setup times and operator
-    // availability are permanently out of scope for this endpoint.
+    // Purely time-based per §8.3: after the product's current queue, the line item's EqA at the speed of the
+    // product's first line (its EqA per hour, v3.0). Setup times and operators are out of scope.
     [HttpPost("estimate")]
     public async Task<ActionResult<QuoteEstimateResponse>> Estimate(QuoteEstimateRequest request)
     {
@@ -53,7 +53,9 @@ public class QuoteController : ControllerBase
 
             var queueTail = maxCompletion is DateTime tail && tail > now ? tail : now;
 
-            var durationMinutes = (double)(jobType.MinsPerUnit * line.Qty);
+            var eqaPerHour = await _db.Stations.Where(s => s.IsActive && s.ComponentType == jobType.ComponentType)
+                .OrderBy(s => s.DisplayOrder).ThenBy(s => s.Id).Select(s => s.EqaPerHour).FirstOrDefaultAsync();
+            var durationMinutes = (double)line.Qty * 60 / (eqaPerHour is > 0 ? (double)eqaPerHour.Value : 60);
             var completion = WorkingCalendar.PlaceDuration(queueTail, durationMinutes, shiftStartHour, shiftEndHour, workingDays, calendar.Breaks);
 
             results.Add(new QuoteLineResult(jobType.Id, jobType.Name, line.Qty, completion));

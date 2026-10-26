@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { isMovableStatus } from '../auth/permissions'
 import type { JobDetailDto, JobStatus, JobSummaryDto, UpdateJobRequest } from '../types/api'
 import { StatusPill } from '../components/StatusPill'
+import { TbaTag } from '../components/TbaTag'
 import { resolveStatusStyle } from '../components/statusStyles'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { JobEditModal, updateRequestFrom } from '../components/JobEditModal'
@@ -222,6 +223,7 @@ export function JobsView() {
                     <td>{j.totalEqA ?? '—'}</td>
                     <td>
                       <StatusPill status={j.status} isLate={j.isLate} />
+                      {j.isTba && <TbaTag />}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>

@@ -1,6 +1,7 @@
 import type { ScheduleItemDto, ScheduleSegmentDto } from '../types/api'
 import { resolveStatusStyle } from './statusStyles'
 import { CreepBadge } from './CreepBadge'
+import { TbaTag } from './TbaTag'
 
 export function LockIcon({ size = 11 }: { size?: number }) {
   return (
@@ -42,7 +43,11 @@ export function CalendarBlock({
       title={`${item.jobRef} — ${item.componentType ?? ''}${days.length > 1 ? ` (day ${dayNumber} of ${days.length})` : ''}`}
       style={{
         background: style.block,
-        borderLeft: `3px solid ${style.border}`,
+        borderLeft: `3px ${item.isTba ? 'dashed' : 'solid'} ${style.border}`,
+        // Pencilled-in (TBA) work looks provisional.
+        opacity: item.isTba ? 0.7 : 1,
+        outline: item.isTba ? `1px dashed ${style.border}` : undefined,
+        outlineOffset: -1,
         color: style.text,
         borderRadius: 4,
         padding: compact ? '3px 6px' : '6px 8px',
@@ -67,6 +72,7 @@ export function CalendarBlock({
           </span>
         )}
         <span style={{ fontWeight: 700 }}>{item.jobRef}</span>
+        {item.isTba && <TbaTag />}
         {days.length > 1 && (
           <span style={{ fontSize: 10, opacity: 0.75 }}>
             day {dayNumber}/{days.length}

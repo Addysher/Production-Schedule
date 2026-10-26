@@ -31,14 +31,13 @@ public class ScenarioC_CreepDetectionTests
     {
         const string comp = "ScnC";
         var dataIn = _f.NewDir("cdatain");
-        var stationId = await _f.AddStationAsync("ScnC Station", comp, prdPath: dataIn);
+        var stationId = await _f.AddStationAsync("ScnC Station", comp, prdPath: dataIn, eqaPerHour: 10);
         var now = SiteClock.Now;
         var today = DateOnly.FromDateTime(now);
 
-        // 6 min per EqA: job X (100 EqA) = 10h planned; it started 6h ago and should end in 4h.
+        // 10 EqA an hour (6 min per EqA): job X (100 EqA) = 10h planned; it started 6h ago and should end in 4h.
         await _f.WithDbAsync(async db =>
         {
-            db.JobTypes.Add(new JobType { Name = "ScnC unit", ComponentType = comp, MinsPerUnit = 6, IsActive = true });
             db.Jobs.Add(new Job
             {
                 JobRef = "CX", ComponentType = comp, DesignStatus = "FinalDesign", Status = "cut", TotalEqA = 100,

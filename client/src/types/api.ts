@@ -15,7 +15,9 @@ export interface StationDto {
   mpsPath: string | null // DataIn: MPS files from the pool
   isActive: boolean
   displayOrder: number
-  dailyEqATarget: number | null
+  eqaPerHour: number | null // what the line makes per working hour
+  todayTargetEqa: number | null // eqaPerHour × today's working hours (with any one-off change)
+  todayChange: string | null // today's one-off change, e.g. "Closed — Easter Monday" or "06:00–17:00 — Overtime"
   archivePath: string | null
   factoryId: number | null
 }
@@ -28,18 +30,21 @@ export interface FactoryDto {
   stationIds: number[]
 }
 
+// A one-off change to a line's working day: overtime hours (start and/or end), or closed.
 export interface CapacityOverrideDto {
   id: number
   stationId: number
   overrideDate: string
-  eqATarget: number
+  isClosed: boolean
+  startTime: string | null // "HH:mm:ss"
+  endTime: string | null
+  note: string | null
 }
 
 export interface JobTypeDto {
   id: number
   name: string
   componentType: string | null
-  minsPerUnit: number
   isActive: boolean
 }
 
@@ -124,6 +129,7 @@ export interface JobSummaryDto {
   isFrozen: boolean
   sawBundleStatus: SawBundleStatus
   isArchived: boolean
+  isTba: boolean // no booked delivery date: pencilled in, not produced until booked
 }
 
 export interface JobDetailDto {
@@ -159,6 +165,7 @@ export interface JobDetailDto {
   sawBundleStatus: SawBundleStatus
   sawFileCount: number
   memberCount: number
+  isTba: boolean
 }
 
 export interface UpdateJobRequest {
@@ -195,6 +202,7 @@ export interface ScheduleGenerationResult {
   scheduleItemsWritten: number
   jobsSkipped: number
   jobsFrozen: number
+  jobsPencilled: number
 }
 
 export interface UpdateJobResponse {
@@ -230,6 +238,7 @@ export interface ScheduleItemDto {
   jobStatus: JobStatus
   segments: ScheduleSegmentDto[]
   isFrozen: boolean
+  isTba: boolean
 }
 
 export interface QuoteLineRequest {

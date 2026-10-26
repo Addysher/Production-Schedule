@@ -34,6 +34,7 @@ public class MmeBundleTests
         db.Jobs.Add(new Job
         {
             JobRef = jobRef, ComponentType = "MmeProduct", DesignStatus = "FinalDesign", Status = "ready", TotalEqA = 10,
+            BookedDeliveryDate = SiteClock.Today.AddDays(30), // called up
             CreatedAt = SiteClock.Now, UpdatedAt = SiteClock.Now,
             Members = memberIds.Select((id, i) => new JobMember { JobRef = jobRef, MemberId = id, EqaValue = 5, Sequence = i + 1 }).ToList(),
         });

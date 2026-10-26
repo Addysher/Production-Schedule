@@ -112,6 +112,7 @@ public class ScenarioA_FullJobLifecycleTests
         await _f.WithDbAsync(async db =>
         {
             var tracked = await db.Jobs.SingleAsync(j => j.JobRef == jobRef);
+            tracked.BookedDeliveryDate = SiteClock.Today.AddDays(30); // the office books delivery: the job is called up
             tracked.EstimatedStartDate = SiteClock.Now.Date.AddDays(1);
             await db.SaveChangesAsync();
         });
