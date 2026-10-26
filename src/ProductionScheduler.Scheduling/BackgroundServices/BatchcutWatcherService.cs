@@ -111,6 +111,7 @@ public class BatchcutWatcherService : BackgroundService
                 Status = "error",
                 ErrorMessage = "No matching job in system"
             });
+            MaintenanceLogWriter.Add(db, "Batchcut", "error", $"DONE folder '{folderName}' has no matching job ('{jobRef}').", jobRef, Path.Combine(watchPath.UncPath, folderName));
             _logger.LogWarning("Batchcut DONE folder {Folder} has no matching job (resolved ref '{JobRef}').", folderName, jobRef);
         }
         else if (job.Status is "cut" or "in-production" or "completed")
@@ -151,6 +152,8 @@ public class BatchcutWatcherService : BackgroundService
                 Status = "error",
                 ErrorMessage = $"Job status is '{job.Status}', expected 'approved'."
             });
+            MaintenanceLogWriter.Add(db, "Batchcut", "error",
+                $"DONE folder '{folderName}' found, but {jobRef} is '{job.Status}' — it was never approved for cutting.", jobRef, Path.Combine(watchPath.UncPath, folderName));
         }
 
         await db.SaveChangesAsync(ct);

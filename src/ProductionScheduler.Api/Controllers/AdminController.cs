@@ -62,6 +62,15 @@ public class AdminController : ControllerBase
             return NotFound();
         }
 
+        // A path with logged events can't be removed without losing its Batchcut Log history (and the
+        // foreign key forbids it), so it is switched off instead: it stops being watched.
+        if (await _db.BatchcutEvents.AnyAsync(e => e.BatchcutPathId == id))
+        {
+            path.IsActive = false;
+            await _db.SaveChangesAsync();
+            return Ok(new BatchcutWatchPathDto(path.Id, path.Name, path.UncPath, path.IsActive));
+        }
+
         _db.BatchcutWatchPaths.Remove(path);
         await _db.SaveChangesAsync();
         return NoContent();

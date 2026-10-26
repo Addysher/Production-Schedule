@@ -32,9 +32,9 @@ public class NotificationsController : ControllerBase
         var newJobs = await _db.Jobs.CountAsync(j => j.CreatedAt > since);
 
         // Anything that went wrong unattended: a rejected SCH file, an unreadable PRD line, a failed
-        // nightly task (all MaintenanceLogs) or a DONE folder the batchcut watcher couldn't place.
-        var errors = await _db.MaintenanceLogs.CountAsync(l => l.Outcome == "error" && l.RunAt > since)
-                     + await _db.BatchcutEvents.CountAsync(e => e.Status == "error" && e.DetectedAt > since);
+        // nightly task, a DONE folder the batchcut watcher couldn't place… — all written to
+        // MaintenanceLogs, which is also what the Dashboard's 'Needs attention' panel lists.
+        var errors = await _db.MaintenanceLogs.CountAsync(l => l.Outcome == "error" && l.RunAt > since);
 
         return new NotificationSummaryDto(newJobs, errors, now);
     }

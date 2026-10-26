@@ -30,6 +30,11 @@ public class UsersController : ControllerBase
     private static string? InvalidRole(string role) =>
         ValidRoles.Contains(role) ? null : $"Role must be one of: {string.Join(", ", ValidRoles)}.";
 
+    private const string LastAdminMessage = "At least one active Admin is required — make someone else an Admin first.";
+
+    private async Task<bool> IsLastActiveAdminAsync(User user) =>
+        user.Role == "Admin" && user.IsActive && !await _db.Users.AnyAsync(u => u.Id != user.Id && u.Role == "Admin" && u.IsActive);
+
     private static UserDto ToDto(User u) => new(u.Id, u.Username, u.Role, u.IsActive, u.CreatedAt, u.LastLoginAt);
 
     [HttpGet]
@@ -91,6 +96,11 @@ public class UsersController : ControllerBase
             return BadRequest(badRole);
         }
 
+        if ((request.Role != "Admin" || !request.IsActive) && await IsLastActiveAdminAsync(user))
+        {
+            return Conflict(LastAdminMessage);
+        }
+
         user.Role = request.Role;
         user.IsActive = request.IsActive;
         await _db.SaveChangesAsync();
@@ -123,6 +133,11 @@ public class UsersController : ControllerBase
         if (user is null)
         {
             return NotFound();
+        }
+
+        if (await IsLastActiveAdminAsync(user))
+        {
+            return Conflict(LastAdminMessage);
         }
 
         user.IsActive = false;

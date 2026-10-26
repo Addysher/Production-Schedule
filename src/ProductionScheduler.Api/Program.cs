@@ -1,4 +1,5 @@
 using ProductionScheduler.Domain;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -55,6 +56,34 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = jwtSettings.Issuer,
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Key))
+        };
+
+        // A token stays valid for hours, but deactivating a user or changing their role has to take
+        // effect on their very next request: check the account and use its current role every time.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var userId = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var account = int.TryParse(userId, out var id)
+                    ? await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id)
+                    : null;
+
+                if (account is null || !account.IsActive)
+                {
+                    context.Fail("This account is no longer active.");
+                    return;
+                }
+
+                var identity = (ClaimsIdentity)context.Principal!.Identity!;
+                foreach (var role in identity.FindAll(ClaimTypes.Role).ToList())
+                {
+                    identity.RemoveClaim(role);
+                }
+
+                identity.AddClaim(new Claim(ClaimTypes.Role, account.Role));
+            },
         };
     });
 
