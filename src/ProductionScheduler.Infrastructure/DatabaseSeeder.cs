@@ -34,6 +34,22 @@ public static class DatabaseSeeder
         ("NightlyMaintenanceRunHour", "1"), // not named in the doc ("configurable, default 01:00") — see NightlyMaintenanceService
         ("FreezeWindowDays", "3"), // v3.0 lock-out: today + this many working days are frozen; 0 = off (see FreezeWindow)
 
+        // v3.0 email reports (§5.17, EmailReportService). A report with no recipient isn't sent.
+        ("SmtpHost", ""),
+        ("SmtpPort", "25"),
+        ("SmtpUseSsl", "false"),
+        ("SmtpUsername", ""),
+        ("SmtpPassword", ""), // never sent back to the browser (SettingsController masks it)
+        ("SmtpFromAddress", ""),
+        ("EmailPickupDirectory", ""), // set to write .eml files to a folder instead of sending (testing)
+        ("EmailNextDayJobsTo", ""),
+        ("EmailNextDayJobsHour", "15"),
+        ("EmailReadyForProductionTo", ""),
+        ("EmailReadyForProductionHour", "7"),
+        ("EmailReadyForProductionDays", "10"),
+        ("EmailDailyProductionTo", ""),
+        ("EmailDailyProductionHour", "17"),
+
         // Appearance — read by any authenticated user (SettingsController) and applied client-side
         // (client/src/theme/applyTheme.ts) so Admin and Viewer see the same branding/mode.
         ("ThemePrimaryColor", "#0a5e73"),

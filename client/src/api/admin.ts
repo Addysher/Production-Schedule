@@ -68,3 +68,19 @@ export const batchcutWatchPathsApi = {
     apiClient.put<BatchcutWatchPathDto>(`/admin/batchcut-watch-paths/${id}`, dto).then((r) => r.data),
   remove: (id: number) => apiClient.delete(`/admin/batchcut-watch-paths/${id}`),
 }
+
+export interface EmailReportStatusDto {
+  key: string
+  title: string
+  recipients: string
+  hour: number
+  lastSentAt: string | null
+  lastError: string | null
+  lastErrorAt: string | null
+}
+
+export const emailApi = {
+  reports: () => apiClient.get<EmailReportStatusDto[]>('/email/reports').then((r) => r.data),
+  preview: (key: string) => apiClient.get<string>(`/email/reports/${key}/preview`, { responseType: 'text' }).then((r) => r.data),
+  sendNow: (key: string) => apiClient.post<{ sent: boolean; message: string }>(`/email/reports/${key}/send-now`).then((r) => r.data),
+}

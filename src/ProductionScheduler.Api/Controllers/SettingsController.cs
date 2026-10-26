@@ -19,21 +19,46 @@ public class SettingsController : ControllerBase
         _db = db;
     }
 
+    // Shown instead of a secret's value. Saving it back unchanged keeps the stored secret.
+    public const string SecretMask = "********";
+
+    private static bool IsSecret(string key) => key.EndsWith("Password", StringComparison.OrdinalIgnoreCase);
+
     // Read access is open to any authenticated user (same reasoning as calendar-settings): the
     // appearance settings (ThemePrimaryColor/ThemeSecondaryColor/ThemeMode) have to be readable by a
-    // Viewer too, since every logged-in user renders the same themed UI, not just Admins.
+    // Viewer too, since every logged-in user renders the same themed UI. That is all they get, though —
+    // folder paths and mail settings are Admin business — and secrets are never sent to anyone.
     [HttpGet]
     public async Task<ActionResult<List<SettingDto>>> GetAll()
     {
-        var settings = await _db.Settings.AsNoTracking().OrderBy(s => s.Key).ToListAsync();
-        return settings.Select(s => new SettingDto(s.Key, s.Value, s.UpdatedAt)).ToList();
+        var query = _db.Settings.AsNoTracking();
+        if (!User.IsInRole("Admin"))
+        {
+            query = query.Where(s => s.Key.StartsWith("Theme"));
+        }
+
+        var settings = await query.OrderBy(s => s.Key).ToListAsync();
+        return settings.Select(ToDto).ToList();
     }
+
+    private static SettingDto ToDto(Setting s) =>
+        new(s.Key, IsSecret(s.Key) && s.Value.Length > 0 ? SecretMask : s.Value, s.UpdatedAt);
 
     [HttpPut("{key}")]
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<SettingDto>> Update(string key, UpdateSettingRequest request)
     {
         var value = (request.Value ?? "").Trim(); // blank is valid: it means "not set up yet" for folder paths
+        if (IsSecret(key) && value == SecretMask)
+        {
+            var unchanged = await _db.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == key);
+            return unchanged is null ? NotFound() : ToDto(unchanged);
+        }
+
+        if (IsSecret(key))
+        {
+            value = request.Value ?? ""; // a password may legitimately start or end with a space
+        }
         if (await SettingValidation.ProblemAsync(_db, key, value) is { } problem)
         {
             return BadRequest(problem);
@@ -54,6 +79,6 @@ public class SettingsController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
-        return new SettingDto(setting.Key, setting.Value, setting.UpdatedAt);
+        return ToDto(setting);
     }
 }

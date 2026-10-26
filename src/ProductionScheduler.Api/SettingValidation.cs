@@ -64,9 +64,22 @@ public static partial class SettingValidation
             "WorkingDays" => WorkingDaysProblem(value),
             "ThemeMode" when value is not ("system" or "light" or "dark") => "ThemeMode must be system, light or dark.",
             "ThemePrimaryColor" or "ThemeSecondaryColor" when !HexColour().IsMatch(value) => $"{key} must be a colour like #0a5e73.",
+            "SmtpUseSsl" when value is not ("true" or "false") => "SmtpUseSsl must be true or false.",
+            "SmtpFromAddress" when value.Length > 0 && !IsEmailAddress(value) => $"'{value}' isn't an email address.",
+            "EmailNextDayJobsTo" or "EmailReadyForProductionTo" or "EmailDailyProductionTo" => RecipientsProblem(value),
             _ => null,
         };
     }
+
+    // Blank = report switched off; otherwise one or more addresses separated by ; or , (usually one list).
+    private static string? RecipientsProblem(string value)
+    {
+        var bad = value.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(a => !IsEmailAddress(a));
+        return bad is null ? null : $"'{bad}' isn't an email address.";
+    }
+
+    private static bool IsEmailAddress(string value) =>
+        System.Net.Mail.MailAddress.TryCreate(value, out var address) && address.Address == value && value.Contains('.');
 
     private static string? WorkingDaysProblem(string value)
     {

@@ -15,9 +15,10 @@ import type {
 import type { BatchcutEventDto } from '../types/logs'
 import { JobTypesSection, ShiftsSection, StationsSection } from './SettingsTables'
 import { errorText } from '../components/Modal'
+import { EmailSettingsSection } from './EmailSettings'
 import { applyTheme, readThemeSettings, DEFAULT_PRIMARY_COLOR, DEFAULT_SECONDARY_COLOR, type ThemeMode } from '../theme/applyTheme'
 
-type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'products' | 'batchpaths' | 'batchlog'
+type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'email' | 'products' | 'batchpaths' | 'batchlog'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'products', label: 'Products' },
@@ -26,6 +27,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'shifts', label: 'Shifts' },
   { key: 'users', label: 'Users' },
   { key: 'settings', label: 'System Settings' },
+  { key: 'email', label: 'Email' },
   { key: 'batchpaths', label: 'Batchcut Watch Paths' },
   { key: 'batchlog', label: 'Batchcut Log' },
 ]
@@ -58,6 +60,7 @@ export function SettingsView() {
       {tab === 'shifts' && <ShiftsSection />}
       {tab === 'users' && <UsersSection />}
       {tab === 'settings' && <SystemSettingsSection />}
+      {tab === 'email' && <EmailSettingsSection />}
       {tab === 'products' && <ProductsSection />}
       {tab === 'batchpaths' && <BatchPathsSection />}
       {tab === 'batchlog' && <BatchLogSection />}
@@ -331,6 +334,9 @@ const SETTING_HINTS: Record<string, string> = {
   FreezeWindowDays: 'Lock-out: jobs starting today and the next this-many working days can’t be moved. 0 = off',
 }
 
+// Mail settings are edited on the Email tab.
+const isEmailSetting = (key: string) => key.startsWith('Smtp') || key.startsWith('Email')
+
 function SystemSettingsSection() {
   const [rows, setRows] = useState<SettingDto[]>([])
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -372,7 +378,7 @@ function SystemSettingsSection() {
           </tr>
         </thead>
         <tbody>
-          {rows.map((s) => (
+          {rows.filter((s) => !isEmailSetting(s.key)).map((s) => (
             <tr key={s.key}>
               <td>
                 <div>{s.key}</div>
