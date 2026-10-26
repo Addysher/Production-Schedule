@@ -79,11 +79,11 @@ export function ShiftModal({ shift, onClose, onSaved }: { shift?: ShiftDto; onCl
             <TimeInput value={startTime} onChange={setStartTime} label="Shift start" />
           </Field>
           <Field label="End">
-            <TimeInput value={endTime} onChange={setEndTime} label="Shift end" midnightLabel="24 (midnight)" />
+            <TimeInput value={endTime} onChange={setEndTime} label="Shift end" />
           </Field>
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-          24-hour times. The working day runs from the earliest active shift's start to the latest one's end; breaks must fall inside the shift. Saving re-plans the schedule.
+          24-hour times (an end of 00:00 means midnight). The working day runs from the earliest active shift's start to the latest one's end; breaks must fall inside the shift. Saving re-plans the schedule.
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />

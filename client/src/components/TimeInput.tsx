@@ -8,12 +8,10 @@ export function TimeInput({
   value,
   onChange,
   label,
-  midnightLabel,
 }: {
   value: string
   onChange: (value: string) => void
   label?: string // for screen readers, e.g. "Shift start"
-  midnightLabel?: string // e.g. "24 (midnight)" for an end time, where 00:00 means the end of the day
 }) {
   const [hh = '00', mm = '00'] = value.split(':')
   const minutes = STEP_MINUTES.includes(mm) ? STEP_MINUTES : [...STEP_MINUTES, mm].sort()
@@ -23,7 +21,7 @@ export function TimeInput({
       <select value={hh} onChange={(e) => onChange(`${e.target.value}:${mm}`)} aria-label={label ? `${label} hour` : 'Hour'}>
         {HOURS.map((h) => (
           <option key={h} value={h}>
-            {h === '00' && midnightLabel ? midnightLabel : h}
+            {h}
           </option>
         ))}
       </select>
