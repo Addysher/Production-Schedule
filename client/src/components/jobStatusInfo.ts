@@ -71,7 +71,9 @@ export function nextStep(job: {
   delivered?: boolean
   completedEqA?: number | null
   totalEqA?: number | null
+  isArchived?: boolean
 }): NextStep {
+  if (job.isArchived) return { text: job.delivered ? 'Archived — delivered' : 'Archived', waiting: true }
   switch (job.status) {
     case 'scheduled':
       return { text: job.isTba ? 'Needs the final design and a booked date' : 'Booked — needs the final design', waiting: true }

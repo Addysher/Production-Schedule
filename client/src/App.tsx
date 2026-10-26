@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { jobsApi } from './api/jobs'
 import { Layout } from './components/Layout'
@@ -73,11 +73,11 @@ function BackToWhereYouWere({ fallback }: { fallback: string }) {
 function KioskRoute({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const location = useLocation()
-  const { factoryId } = useParams()
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
-  if (user.role === 'Kiosk' && user.factoryId && factoryId !== String(user.factoryId)) {
+  // (A kiosk login without a factory stays on /kiosk, which says so.)
+  if (user.role === 'Kiosk' && location.pathname !== kioskPath(user)) {
     return <Navigate to={kioskPath(user)} replace />
   }
   return <>{children}</>

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { authApi } from '../api/auth'
 import { setAuthToken, setUnauthorizedHandler } from '../api/client'
 import type { Role } from '../types/api'
@@ -98,6 +98,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     writeStoredSession({ token: response.token, username: response.username, role: response.role, factoryId: response.factoryId })
     setUser(toAuthState(response.username, response.role, response.factoryId))
   }, [])
+
+  // A kiosk's factory can be changed (or its factory deleted) while it's signed in, and sessions saved
+  // before kiosks had a factory don't carry one: check the account now and every few minutes.
+  const isKiosk = user?.role === 'Kiosk'
+  useEffect(() => {
+    if (!isKiosk) return
+    const check = () =>
+      authApi
+        .me()
+        .then((me) => {
+          setUser((current) => (current && (current.role !== me.role || current.factoryId !== me.factoryId) ? toAuthState(me.username, me.role, me.factoryId) : current))
+          const stored = readStoredSession()
+          if (stored) writeStoredSession({ ...stored, role: me.role, factoryId: me.factoryId })
+        })
+        .catch(() => {}) // offline for a moment: keep showing what it has
+    check()
+    const timer = window.setInterval(check, 5 * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [isKiosk])
 
   // A 401 from any API call (expired/invalid token) drops the session back to the login screen.
   useMemo(() => setUnauthorizedHandler(() => logout()), [logout])

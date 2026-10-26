@@ -47,6 +47,16 @@ public class AuthController : ControllerBase
         return Ok(new LoginResponse(token, user.Username, user.Role, user.Role == "Kiosk" ? user.FactoryId : null));
     }
 
+    // A kiosk checks this when it starts and while it runs, so relinking it to another factory (or
+    // deleting its factory) takes effect without anyone signing it out and in again.
+    [HttpGet("me")]
+    public async Task<ActionResult<MeResponse>> Me()
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+        return user is null ? NotFound() : new MeResponse(user.Username, user.Role, user.Role == "Kiosk" ? user.FactoryId : null);
+    }
+
     [HttpPost("logout")]
     public IActionResult Logout()
     {

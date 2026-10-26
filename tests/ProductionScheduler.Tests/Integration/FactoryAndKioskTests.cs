@@ -95,11 +95,14 @@ public class FactoryAndKioskTests
         var login = await (await _f.AnonymousClient().PostAsJsonAsync("/api/auth/login", new { username = "kiosk_one", password = "Pass1234!" }))
             .Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(factoryId, login.GetProperty("factoryId").GetInt32());
+        var kiosk = await _f.ClientAsync("kiosk_one", "Pass1234!");
+        Assert.Equal(factoryId, (await kiosk.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("factoryId").GetInt32());
 
         // Other roles never carry a factory; deleting the factory leaves the login without one.
         var viewer = await (await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_viewer", password = "Pass1234!", role = "Viewer", factoryId })).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(JsonValueKind.Null, viewer.GetProperty("factoryId").ValueKind);
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/factories/{factoryId}")).StatusCode);
         Assert.Null(await _f.WithDbAsync(db => db.Users.Where(u => u.Id == kioskUser).Select(u => u.FactoryId).SingleAsync()));
+        Assert.Equal(JsonValueKind.Null, (await kiosk.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("factoryId").ValueKind); // the running kiosk finds out
     }
 }

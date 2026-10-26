@@ -163,20 +163,26 @@ export function JobsView() {
   }
 
   async function approve(jobRef: string) {
+    setBusy(true)
     try {
       if (await approveForCuttingWithConfirm(jobRef)) setNotice(`${jobRef} approved for cutting.`)
     } catch (e) {
       setNotice(errorText(e, `Could not approve ${jobRef}.`))
+    } finally {
+      setBusy(false)
     }
     await reloadAfterChange()
   }
 
   async function markDelivered(job: JobSummaryDto) {
+    setBusy(true)
     try {
       const detail = await jobsApi.getById(job.id)
       await jobsApi.update(detail.id, { ...updateRequestFrom(detail), delivered: true })
     } catch (e) {
       setNotice(errorText(e, `Could not mark ${job.jobRef} delivered.`))
+    } finally {
+      setBusy(false)
     }
     await reloadAfterChange()
   }
@@ -188,8 +194,18 @@ export function JobsView() {
     setSelected(next)
   }
 
-  const allShownSelected = filtered.length > 0 && filtered.every((j) => selected.has(j.jobRef))
-  const toggleAllShown = () => setSelected(allShownSelected ? new Set() : new Set(filtered.map((j) => j.jobRef)))
+  // Bulk actions only touch selected rows that are shown: a filter or search hides the rest from them.
+  const selectedShown = filtered.filter((j) => selected.has(j.jobRef)).map((j) => j.jobRef)
+  const hiddenSelected = selected.size - selectedShown.length
+  const allShownSelected = filtered.length > 0 && selectedShown.length === filtered.length
+  const toggleAllShown = () => {
+    const next = new Set(selected)
+    for (const j of filtered) {
+      if (allShownSelected) next.delete(j.jobRef)
+      else next.add(j.jobRef)
+    }
+    setSelected(next)
+  }
 
   // Runs an action over the selected jobs, carrying on past failures and reporting them together.
   async function bulk(action: string, run: (jobRef: string) => Promise<'done' | 'skipped'>) {
@@ -199,7 +215,7 @@ export function JobsView() {
     let done = 0
     let skipped = 0
     try {
-      for (const jobRef of selected) {
+      for (const jobRef of selectedShown) {
         try {
           if ((await run(jobRef)) === 'done') done++
           else skipped++
@@ -230,7 +246,7 @@ export function JobsView() {
   const bulkMarkDelivered = () =>
     bulk('Mark delivered', async (jobRef) => {
       const summary = jobs.find((j) => j.jobRef === jobRef)
-      if (!summary || summary.delivered) return 'skipped'
+      if (!summary || summary.status !== 'completed' || summary.delivered) return 'skipped'
       const detail = await jobsApi.getById(summary.id)
       await jobsApi.update(detail.id, { ...updateRequestFrom(detail), delivered: true })
       return 'done'
@@ -260,13 +276,13 @@ export function JobsView() {
     if (j.isArchived || !user?.isAdmin) return null
     if (step.action === 'approve' && canApproveForCutting(j))
       return (
-        <button className="btn btn-primary" style={small} onClick={() => approve(j.jobRef)}>
+        <button className="btn btn-primary" style={small} disabled={busy} onClick={() => approve(j.jobRef)}>
           Approve for cutting
         </button>
       )
     if (step.action === 'deliver')
       return (
-        <button className="btn btn-primary" style={small} onClick={() => markDelivered(j)}>
+        <button className="btn btn-primary" style={small} disabled={busy} onClick={() => markDelivered(j)}>
           Mark delivered
         </button>
       )
@@ -325,9 +341,10 @@ export function JobsView() {
             {chip('Late', lateCount, 'late', '#ef4444')}
           </div>
 
-          {user?.isAdmin && selected.size > 0 && (
+          {user?.isAdmin && selectedShown.length > 0 && (
             <div className="card" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flexWrap: 'wrap' }}>
-              <b>{selected.size} selected</b>
+              <b>{selectedShown.length} selected</b>
+              {hiddenSelected > 0 && <span style={{ color: 'var(--text-muted)' }}>({hiddenSelected} more hidden by the filters — not included)</span>}
               <button className="btn btn-secondary" style={small} disabled={busy} onClick={bulkApproveForCutting} title="Ready, booked jobs whose saw files are complete">
                 Approve for cutting
               </button>
