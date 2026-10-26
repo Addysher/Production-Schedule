@@ -63,7 +63,7 @@ public class PlanningFidelityTests
 
         var created = await admin.PostAsJsonAsync("/api/shifts", new
         {
-            name = "PF lunch", startTime = "00:00:00", endTime = "23:59:00", isActive = true,
+            name = "PF lunch", startTime = "00:00:00", endTime = "00:00:00" /* midnight to midnight */, isActive = true,
             breaks = new[] { new { breakStart = "12:00:00", breakDurationMins = 60 } },
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
@@ -163,8 +163,10 @@ public class PlanningFidelityTests
         {
             var settings = await admin.GetFromJsonAsync<JsonElement>("/api/schedule/calendar-settings");
 
-            Assert.Equal(0, settings.GetProperty("shiftStartHour").GetInt32()); // the fixture runs a continuous 24h calendar
-            Assert.Equal(24, settings.GetProperty("shiftEndHour").GetInt32());
+            // The active shift sets the working day (the fixture's own 24h Settings hours only apply with no shift).
+            Assert.Equal(6, settings.GetProperty("shiftStartHour").GetInt32());
+            Assert.Equal(18, settings.GetProperty("shiftEndHour").GetInt32());
+            Assert.Equal("06:00", settings.GetProperty("dayStart").GetString());
             Assert.Equal(7, settings.GetProperty("workingDays").GetArrayLength());
             Assert.Contains(settings.GetProperty("breaks").EnumerateArray(),
                 b => b.GetProperty("start").GetString() == "09:30" && b.GetProperty("end").GetString() == "09:45");

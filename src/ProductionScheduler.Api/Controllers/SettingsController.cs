@@ -13,10 +13,15 @@ namespace ProductionScheduler.Api.Controllers;
 public class SettingsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly ProductionScheduler.Scheduling.IScheduleGenerationService _scheduleGenerationService;
 
-    public SettingsController(AppDbContext db)
+    // Settings that change the shape of the working calendar: the plan is redone when one is saved.
+    private static readonly HashSet<string> CalendarKeys = ["ShiftStartHour", "ShiftEndHour", "WorkingDays", "FreezeWindowDays"];
+
+    public SettingsController(AppDbContext db, ProductionScheduler.Scheduling.IScheduleGenerationService scheduleGenerationService)
     {
         _db = db;
+        _scheduleGenerationService = scheduleGenerationService;
     }
 
     // Shown instead of a secret's value. Saving it back unchanged keeps the stored secret.
@@ -79,6 +84,11 @@ public class SettingsController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        if (CalendarKeys.Contains(key))
+        {
+            await _scheduleGenerationService.GenerateAsync();
+        }
+
         return ToDto(setting);
     }
 }

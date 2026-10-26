@@ -84,6 +84,13 @@ public sealed class IntegrationFixture : IAsyncLifetime
         // FreezeWindowTests turns it on for its own checks.
         await SetSettingsAsync(("ShiftStartHour", "0"), ("ShiftEndHour", "24"), ("WorkingDays", "0,1,2,3,4,5,6"), ("SchFileSettleSeconds", "0"),
             ("FreezeWindowDays", "0"));
+        // The working day comes from the active shifts when there are any; the seeded 06:00–18:00 shift is
+        // switched off so the 24/7 Settings hours above apply (tests that need a shift add their own).
+        await WithDbAsync(async db =>
+        {
+            foreach (var shift in await db.Shifts.ToListAsync()) shift.IsActive = false;
+            await db.SaveChangesAsync();
+        });
     }
 
     public async Task DisposeAsync()

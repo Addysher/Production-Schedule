@@ -167,7 +167,12 @@ public static class MpsFiles
             }
         }
 
-        await ArchiveCompletedAsync(db, SiteClock.Now.Hour >= await SettingsReader.GetIntAsync(db, "ShiftEndHour", 18, ct), ct);
+        // "The shift is over" = past the end of today's working day: the latest active shift end, or the
+        // ShiftEndHour setting when no shift is active.
+        var shiftEnd = await db.Shifts.AnyAsync(sh => sh.IsActive, ct)
+            ? (await WorkCalendarSettings.LoadAsync(db, ct)).DayEnd
+            : TimeSpan.FromHours(await SettingsReader.GetIntAsync(db, "ShiftEndHour", 18, ct));
+        await ArchiveCompletedAsync(db, SiteClock.Now.TimeOfDay >= shiftEnd, ct);
 
         await db.SaveChangesAsync(ct);
     }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { shiftsApi } from '../api/admin'
 import type { ShiftDto } from '../types/api'
 import { Field, Modal, errorText, fromTimeOnly, toTimeOnly } from './Modal'
+import { TimeInput } from './TimeInput'
 
 interface BreakRow {
   key: number
@@ -28,6 +29,12 @@ export function ShiftModal({ shift, onClose, onSaved }: { shift?: ShiftDto; onCl
   async function save() {
     if (!name.trim()) return setError('Give the shift a name.')
     if (breaks.some((b) => !b.start || !(Number(b.mins) > 0))) return setError('Every break needs a start time and a duration in minutes.')
+    const toMins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+    const start = toMins(startTime)
+    const end = endTime === '00:00' ? 24 * 60 : toMins(endTime)
+    if (end <= start) return setError('The shift must end after it starts (shifts past midnight are not supported).')
+    const outside = breaks.find((b) => toMins(b.start) < start || toMins(b.start) + Number(b.mins) > end)
+    if (outside) return setError(`The break at ${outside.start} is outside the shift (${startTime} to ${endTime === '00:00' ? '24:00' : endTime}).`)
     setSaving(true)
     setError(null)
     const body = {
@@ -69,14 +76,14 @@ export function ShiftModal({ shift, onClose, onSaved }: { shift?: ShiftDto; onCl
         </Field>
         <div style={{ display: 'flex', gap: 12 }}>
           <Field label="Start">
-            <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+            <TimeInput value={startTime} onChange={setStartTime} label="Shift start" />
           </Field>
           <Field label="End">
-            <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+            <TimeInput value={endTime} onChange={setEndTime} label="Shift end" midnightLabel="24 (midnight)" />
           </Field>
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-          The working window itself is set by ShiftStartHour / ShiftEndHour in System Settings; a shift contributes its breaks.
+          24-hour times. The working day runs from the earliest active shift's start to the latest one's end; breaks must fall inside the shift. Saving re-plans the schedule.
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -87,7 +94,7 @@ export function ShiftModal({ shift, onClose, onSaved }: { shift?: ShiftDto; onCl
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Breaks</div>
           {breaks.map((b) => (
             <div key={b.key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <input type="time" value={b.start} onChange={(e) => updateBreak(b.key, { start: e.target.value })} />
+              <TimeInput value={b.start} onChange={(start) => updateBreak(b.key, { start })} label="Break start" />
               <input type="number" min={1} style={{ width: 80 }} value={b.mins} onChange={(e) => updateBreak(b.key, { mins: e.target.value })} />
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>minutes</span>
               <button className="btn btn-danger" style={{ padding: '1px 8px' }} onClick={() => setBreaks(breaks.filter((x) => x.key !== b.key))}>

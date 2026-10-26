@@ -321,8 +321,8 @@ function AppearanceSection({ rows, onSaved }: { rows: SettingDto[]; onSaved: (sa
 // What each setting does, shown under its name. Keys not listed here still show and save as plain text.
 const SETTING_HINTS: Record<string, string> = {
   AtRiskBufferMinutes: 'A job is "at risk" when its planned finish is within this many minutes of its due date',
-  ShiftStartHour: 'Hour the working day starts (0–23)',
-  ShiftEndHour: 'Hour the working day ends (1–24, after the start)',
+  ShiftStartHour: 'Only used when no shift is active: hour the working day starts (0–23). Normally the Shifts tab sets the day',
+  ShiftEndHour: 'Only used when no shift is active: hour the working day ends (1–24). Normally the Shifts tab sets the day',
   WorkingDays: 'Days production runs: 0 = Sun … 6 = Sat, comma separated',
   ScheduleRetentionMonths: 'Archived schedule records older than this are purged by nightly maintenance',
   PrdPollIntervalMinutes: 'How often production (PRD) files are read',

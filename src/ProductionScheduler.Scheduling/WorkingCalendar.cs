@@ -6,13 +6,28 @@ public readonly record struct BreakWindow(TimeSpan Start, TimeSpan End);
 // One contiguous stretch of a job's work on one calendar day — what the Calendar actually draws.
 public readonly record struct WorkSegment(DateOnly Day, DateTime Start, DateTime End, double Eqa);
 
-// Shared working-calendar math: given the shift window and working days from Settings (§6.2) and the
-// break windows from the active shifts, advances a point in time to the next valid working moment, or
+// Shared working-calendar math: given the working day (from the active shifts, else Settings — §6.2),
+// the working days and the break windows from the active shifts, advances a point in time to the next valid working moment, or
 // places a duration / an amount of EqA work across it.
 public static class WorkingCalendar
 {
+    // Whole-hour versions, kept for callers that think in hours.
     public static DateTime AdvanceToWorkingWindow(
-        DateTime t, int shiftStartHour, int shiftEndHour, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null)
+        DateTime t, int shiftStartHour, int shiftEndHour, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null) =>
+        AdvanceToWorkingWindow(t, TimeSpan.FromHours(shiftStartHour), TimeSpan.FromHours(shiftEndHour), workingDays, breaks);
+
+    public static DateTime PlaceWork(
+        DateTime start, double eqa, double minsPerEqa, int shiftStartHour, int shiftEndHour, HashSet<int> workingDays,
+        Func<DateOnly, double?> dailyCapEqa, Dictionary<DateOnly, double> usedEqa, IReadOnlyList<BreakWindow>? breaks = null, List<WorkSegment>? segments = null) =>
+        PlaceWork(start, eqa, minsPerEqa, TimeSpan.FromHours(shiftStartHour), TimeSpan.FromHours(shiftEndHour), workingDays, dailyCapEqa, usedEqa, breaks, segments);
+
+    public static DateTime PlaceDuration(
+        DateTime start, double minutes, int shiftStartHour, int shiftEndHour, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null) =>
+        PlaceDuration(start, minutes, TimeSpan.FromHours(shiftStartHour), TimeSpan.FromHours(shiftEndHour), workingDays, breaks);
+
+    // The working day runs from dayStart to dayEnd (time of day, minute precision — e.g. 06:00 to 14:30).
+    public static DateTime AdvanceToWorkingWindow(
+        DateTime t, TimeSpan dayStart, TimeSpan dayEnd, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null)
     {
         // A calendar with no usable working time (e.g. breaks covering the whole shift) would otherwise
         // loop forever and hang every scheduling request; two weeks without a working minute is a setup error.
@@ -27,22 +42,22 @@ public static class WorkingCalendar
 
             if (!workingDays.Contains((int)t.DayOfWeek))
             {
-                t = t.Date.AddDays(1).AddHours(shiftStartHour);
+                t = t.Date.AddDays(1) + dayStart;
                 continue;
             }
 
-            var dayStart = t.Date.AddHours(shiftStartHour);
-            var dayEnd = t.Date.AddHours(shiftEndHour);
+            var windowStart = t.Date + dayStart;
+            var windowEnd = t.Date + dayEnd;
 
-            if (t < dayStart)
+            if (t < windowStart)
             {
-                t = dayStart;
+                t = windowStart;
                 continue;
             }
 
-            if (t >= dayEnd)
+            if (t >= windowEnd)
             {
-                t = t.Date.AddDays(1).AddHours(shiftStartHour);
+                t = t.Date.AddDays(1) + dayStart;
                 continue;
             }
 
@@ -89,15 +104,15 @@ public static class WorkingCalendar
         DateTime start,
         double eqa,
         double minsPerEqa,
-        int shiftStartHour,
-        int shiftEndHour,
+        TimeSpan dayStart,
+        TimeSpan dayEnd,
         HashSet<int> workingDays,
         Func<DateOnly, double?> dailyCapEqa,
         Dictionary<DateOnly, double> usedEqa,
         IReadOnlyList<BreakWindow>? breaks = null,
         List<WorkSegment>? segments = null)
     {
-        var t = AdvanceToWorkingWindow(start, shiftStartHour, shiftEndHour, workingDays, breaks);
+        var t = AdvanceToWorkingWindow(start, dayStart, dayEnd, workingDays, breaks);
         if (eqa <= 0 || minsPerEqa <= 0)
         {
             return t;
@@ -108,7 +123,7 @@ public static class WorkingCalendar
         for (var guard = 0; guard < 3650 && remaining > 1e-9; guard++)
         {
             var day = DateOnly.FromDateTime(t);
-            var stop = NextStop(t, t.Date.AddHours(shiftEndHour), breaks);
+            var stop = NextStop(t, t.Date + dayEnd, breaks);
             var eqaByTime = (stop - t).TotalMinutes / minsPerEqa;
             var cap = dailyCapEqa(day);
             var eqaByCap = cap is null ? double.PositiveInfinity : Math.Max(cap.Value - usedEqa.GetValueOrDefault(day), 0);
@@ -130,22 +145,22 @@ public static class WorkingCalendar
             // Roll from the day we were filling, not from t: a shift ending at 24:00 leaves t on the NEXT midnight already.
             var capExhausted = cap is not null && cap.Value - usedEqa.GetValueOrDefault(day) <= 1e-9;
             t = capExhausted
-                ? AdvanceToWorkingWindow(day.ToDateTime(TimeOnly.MinValue).AddDays(1).AddHours(shiftStartHour), shiftStartHour, shiftEndHour, workingDays, breaks)
-                : AdvanceToWorkingWindow(stop, shiftStartHour, shiftEndHour, workingDays, breaks); // out of time before a break/shift end
+                ? AdvanceToWorkingWindow(day.ToDateTime(TimeOnly.MinValue).AddDays(1) + dayStart, dayStart, dayEnd, workingDays, breaks)
+                : AdvanceToWorkingWindow(stop, dayStart, dayEnd, workingDays, breaks); // out of time before a break/shift end
         }
 
         return t;
     }
 
     public static DateTime PlaceDuration(
-        DateTime start, double minutes, int shiftStartHour, int shiftEndHour, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null)
+        DateTime start, double minutes, TimeSpan dayStart, TimeSpan dayEnd, HashSet<int> workingDays, IReadOnlyList<BreakWindow>? breaks = null)
     {
-        var t = AdvanceToWorkingWindow(start, shiftStartHour, shiftEndHour, workingDays, breaks);
+        var t = AdvanceToWorkingWindow(start, dayStart, dayEnd, workingDays, breaks);
         var remaining = minutes;
 
         while (remaining > 0)
         {
-            var stop = NextStop(t, t.Date.AddHours(shiftEndHour), breaks);
+            var stop = NextStop(t, t.Date + dayEnd, breaks);
             var availableMinutes = (stop - t).TotalMinutes;
 
             if (remaining <= availableMinutes)
@@ -156,7 +171,7 @@ public static class WorkingCalendar
             else
             {
                 remaining -= availableMinutes;
-                t = AdvanceToWorkingWindow(stop, shiftStartHour, shiftEndHour, workingDays, breaks);
+                t = AdvanceToWorkingWindow(stop, dayStart, dayEnd, workingDays, breaks);
             }
         }
 

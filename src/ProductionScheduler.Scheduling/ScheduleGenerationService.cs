@@ -99,8 +99,8 @@ public class ScheduleGenerationService : IScheduleGenerationService
         var jobTypes = await _db.JobTypes.Where(jt => jt.IsActive && jt.ComponentType != null).AsNoTracking().ToListAsync(ct);
 
         var calendar = await WorkCalendarSettings.LoadAsync(_db, ct);
-        var shiftStartHour = calendar.ShiftStartHour;
-        var shiftEndHour = calendar.ShiftEndHour;
+        var workStart = calendar.DayStart;
+        var workEnd = calendar.DayEnd;
         var workingDays = calendar.WorkingDays;
         var breaks = calendar.Breaks;
 
@@ -129,9 +129,10 @@ public class ScheduleGenerationService : IScheduleGenerationService
             .Where(kv => queued.Any(j => j.JobRef == kv.Key
                 && stations.Any(s => s.Id == kv.Value[0].StationId && s.ComponentType == j.ComponentType)))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
+        var frozenJobs = queued.Where(j => frozenPlans.ContainsKey(j.JobRef)).ToDictionary(j => j.JobRef);
         queued = queued.Where(j => !frozenPlans.ContainsKey(j.JobRef)).ToList();
 
-        var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, shiftStartHour, shiftEndHour, workingDays, breaks);
+        var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, workStart, workEnd, workingDays, breaks);
         var usedEqaByStation = stations.ToDictionary(s => s.Id, _ => new Dictionary<DateOnly, double>());
 
         // Work already done today counts against today's capacity — otherwise a station that has been
@@ -148,6 +149,13 @@ public class ScheduleGenerationService : IScheduleGenerationService
             usedEqaByStation[row.StationId][today] = (double)row.Eqa;
         }
         var busyUntil = stations.ToDictionary(s => s.Id, _ => windowStart);
+        var lineFreeAt = stations.ToDictionary(s => s.Id, _ => DateTime.MinValue); // when running work is projected to finish
+
+        var inFlightRefs = inFlight.Select(j => j.JobRef).ToList();
+        var inFlightItems = await _db.ScheduleItems
+            .Include(si => si.Segments)
+            .Where(si => !si.IsArchived && si.ActualStart != null && si.ActualEnd == null && inFlightRefs.Contains(si.JobRef))
+            .ToListAsync(ct);
 
         // --- Work already on the floor: occupy the station until its projected end. ---
         foreach (var job in inFlight)
@@ -168,8 +176,17 @@ public class ScheduleGenerationService : IScheduleGenerationService
             else
             {
                 var remainingEqa = Math.Max((double)((job.TotalEqA ?? 0) - job.CompletedEqA), 0);
+                var projected = new List<WorkSegment>();
                 var end = WorkingCalendar.PlaceWork(busyUntil[stationId], remainingEqa, MinsPerEqa(job),
-                    shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqaByStation[stationId], breaks);
+                    workStart, workEnd, workingDays, CapacityFor(station), usedEqaByStation[stationId], breaks, projected);
+
+                // The Calendar draws segments, so a running job shows where its remaining work now falls (under
+                // today's hours and breaks). What's already past stays, and so does the original plan
+                // (PlannedStart/PlannedEnd) for plan-vs-actual.
+                if (inFlightItems.FirstOrDefault(i => i.JobRef == job.JobRef) is { } running)
+                {
+                    ReplaceSegmentsFrom(running, generatedAt, projected);
+                }
 
                 if (job.TotalEqA is > 0)
                 {
@@ -181,22 +198,41 @@ public class ScheduleGenerationService : IScheduleGenerationService
             }
 
             busyUntil[stationId] = projectedEnd;
+            lineFreeAt[stationId] = projectedEnd;
         }
 
-        // --- Frozen work: keeps its slot; everything else on the station goes after it. ---
-        foreach (var items in frozenPlans.Values)
+        // --- Frozen work: keeps its station, its order and its start; everything else goes after it. ---
+        // Its times are re-shaped to the current working day, so a new break or shorter shift shows on
+        // frozen days too. It only moves later if a break now covers its start, or running work is now
+        // expected to finish after it; it is never moved by capacity (that was checked when it was planned).
+        var frozenRefs = frozenPlans.Keys.ToList();
+        var frozenItems = await _db.ScheduleItems
+            .Include(si => si.Segments)
+            .Where(si => !si.IsArchived && si.ActualStart == null && frozenRefs.Contains(si.JobRef))
+            .ToListAsync(ct);
+        foreach (var stationItems in frozenItems.GroupBy(i => i.StationId).Where(g => busyUntil.ContainsKey(g.Key)))
         {
-            var stationId = items[0].StationId;
-            var end = items.Max(i => i.PlannedEnd);
-            if (end > busyUntil[stationId])
+            var stationId = stationItems.Key;
+            var freeAt = lineFreeAt[stationId];
+            foreach (var item in stationItems.OrderBy(i => i.PlannedStart))
             {
-                busyUntil[stationId] = end;
-            }
+                var job = frozenJobs[item.JobRef];
+                var start = WorkingCalendar.AdvanceToWorkingWindow(item.PlannedStart > freeAt ? item.PlannedStart : freeAt, workStart, workEnd, workingDays, breaks);
+                var placed = new List<WorkSegment>();
+                var end = WorkingCalendar.PlaceWork(start, (double)item.PlannedEqA, MinsPerEqa(job),
+                    workStart, workEnd, workingDays, _ => null, usedEqaByStation[stationId], breaks, placed);
 
-            var used = usedEqaByStation[stationId];
-            foreach (var segment in items.SelectMany(i => i.Segments))
-            {
-                used[segment.SegmentDate] = used.GetValueOrDefault(segment.SegmentDate) + (double)segment.PlannedEqA;
+                item.PlannedStart = placed.Count > 0 ? placed[0].Start : start;
+                item.PlannedEnd = end;
+                item.ScheduleDate = DateOnly.FromDateTime(item.PlannedStart);
+                ReplaceSegmentsFrom(item, DateTime.MinValue, placed);
+                job.EstimatedStartDate = item.PlannedStart;
+                job.EstimatedCompletionDate = end;
+                freeAt = end;
+                if (end > busyUntil[stationId])
+                {
+                    busyUntil[stationId] = end;
+                }
             }
         }
 
@@ -278,7 +314,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
             var usedEqa = usedEqaByStation[station.Id];
 
             DateTime PinStart(Job j) => WorkingCalendar.AdvanceToWorkingWindow(
-                j.ManualScheduleDate!.Value.ToDateTime(new TimeOnly(shiftStartHour, 0)), shiftStartHour, shiftEndHour, workingDays, breaks);
+                j.ManualScheduleDate!.Value.ToDateTime(TimeOnly.FromTimeSpan(workStart)), workStart, workEnd, workingDays, breaks);
 
             async Task<DateTime> EarliestStartAsync(Job job, DateTime? notBefore)
             {
@@ -286,19 +322,19 @@ public class ScheduleGenerationService : IScheduleGenerationService
                     ? 0
                     : await _setupResolver.GetSetupMinutesAsync(previousComponentType, job.ComponentType!, ct);
                 var t = setupMinutes > 0
-                    ? WorkingCalendar.PlaceDuration(cursor, setupMinutes, shiftStartHour, shiftEndHour, workingDays, breaks)
+                    ? WorkingCalendar.PlaceDuration(cursor, setupMinutes, workStart, workEnd, workingDays, breaks)
                     : cursor;
                 if (notBefore is DateTime nb && nb > t)
                 {
                     t = nb;
                 }
 
-                return WorkingCalendar.AdvanceToWorkingWindow(t, shiftStartHour, shiftEndHour, workingDays, breaks);
+                return WorkingCalendar.AdvanceToWorkingWindow(t, workStart, workEnd, workingDays, breaks);
             }
 
             // Dry run on a copy of the day-capacity tally, so asking "would it fit?" books nothing.
             DateTime WouldEnd(Job job, DateTime start) => WorkingCalendar.PlaceWork(start, (double)(job.TotalEqA ?? 0), MinsPerEqa(job),
-                shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), new Dictionary<DateOnly, double>(usedEqa), breaks);
+                workStart, workEnd, workingDays, CapacityFor(station), new Dictionary<DateOnly, double>(usedEqa), breaks);
 
             var pinQueue = new Queue<Job>(pinned);
             foreach (var jobRef in cutFirst.Concat(flexibleOrder))
@@ -333,7 +369,7 @@ public class ScheduleGenerationService : IScheduleGenerationService
                 var segments = new List<WorkSegment>();
                 var plannedStart = await EarliestStartAsync(job, notBefore);
                 var plannedEnd = WorkingCalendar.PlaceWork(plannedStart, (double)(job.TotalEqA ?? 0), MinsPerEqa(job),
-                    shiftStartHour, shiftEndHour, workingDays, CapacityFor(station), usedEqa, breaks, segments);
+                    workStart, workEnd, workingDays, CapacityFor(station), usedEqa, breaks, segments);
 
                 // A full day (capacity) pushes the work to a later day — the plan starts where the work does.
                 if (segments.Count > 0)
@@ -375,5 +411,30 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         await _db.SaveChangesAsync(ct);
         return new ScheduleGenerationResult(routable.Count, scheduleItemsWritten, skipped, frozenPlans.Count);
+    }
+
+    // Swaps an item's segments from `from` onward for `replacement`: earlier ones are kept, and one that
+    // straddles `from` is cut short there (with its EqA scaled to the part kept).
+    private void ReplaceSegmentsFrom(ScheduleItem item, DateTime from, List<WorkSegment> replacement)
+    {
+        foreach (var segment in item.Segments.ToList())
+        {
+            if (segment.SegmentStart >= from)
+            {
+                item.Segments.Remove(segment);
+                _db.ScheduleSegments.Remove(segment);
+            }
+            else if (segment.SegmentEnd > from)
+            {
+                var kept = (from - segment.SegmentStart).TotalMinutes / (segment.SegmentEnd - segment.SegmentStart).TotalMinutes;
+                segment.PlannedEqA = Math.Round(segment.PlannedEqA * (decimal)kept, 4);
+                segment.SegmentEnd = from;
+            }
+        }
+
+        foreach (var s in replacement)
+        {
+            item.Segments.Add(new ScheduleSegment { SegmentDate = s.Day, SegmentStart = s.Start, SegmentEnd = s.End, PlannedEqA = (decimal)s.Eqa });
+        }
     }
 }

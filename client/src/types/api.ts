@@ -266,6 +266,8 @@ export interface CalendarSettingsDto {
   workingDays: number[]
   breaks: BreakDto[]
   freezeUntil: string | null // end of the freeze window; null = off
+  dayStart: string // exact working day, "HH:mm" (shiftStartHour/shiftEndHour are the whole hours the grid spans)
+  dayEnd: string
 }
 
 export interface ProductionRowDto {

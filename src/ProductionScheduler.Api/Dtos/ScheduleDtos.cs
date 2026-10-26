@@ -14,7 +14,9 @@ public record BreakDto(string Start, string End);
 
 // What the Calendar screen needs to draw a working day. Readable by every role, unlike /api/settings.
 // FreezeUntil: end of the freeze window (NULL = off) — nothing starting before it can be moved or dropped.
-public record CalendarSettingsDto(int ShiftStartHour, int ShiftEndHour, List<int> WorkingDays, List<BreakDto> Breaks, DateTime? FreezeUntil);
+// ShiftStartHour/ShiftEndHour are the whole hours the Calendar grid spans; DayStart/DayEnd ("HH:mm") are the
+// exact working day, which can end part-way through the last hour (e.g. 14:30).
+public record CalendarSettingsDto(int ShiftStartHour, int ShiftEndHour, List<int> WorkingDays, List<BreakDto> Breaks, DateTime? FreezeUntil, string DayStart, string DayEnd);
 
 public record ProductionRowDto(int StationId, string StationName, DateOnly Date, decimal Eqa);
 

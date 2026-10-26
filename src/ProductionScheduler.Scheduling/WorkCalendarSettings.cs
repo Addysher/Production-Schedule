@@ -6,12 +6,13 @@ namespace ProductionScheduler.Scheduling;
 // Everything WorkingCalendar needs, loaded once so the scheduler, the Quote Estimator and the Calendar
 // screen all describe the same working day.
 //
-// The working window and working days come from the Settings keys (§6.2). Breaks come from the active
-// shifts (§8.6), as the union of all their break windows: the schema supports several shifts per day,
-// but the factory runs one shared window, so a break is simply "a time of day nothing runs".
-// A shift's own start/end time is not used to shape the window — the Settings hours are the authority.
+// The working day comes from the active shifts (§8.6): from the earliest shift start to the latest
+// shift end, to the minute (e.g. 06:00–14:30). Only when no shift is active do the Settings hours
+// (ShiftStartHour / ShiftEndHour, §6.2) apply. Breaks are the union of the active shifts' breaks: the
+// factory runs one shared day, so a break is simply "a time of day nothing runs". Working days come
+// from Settings.
 public sealed record WorkCalendarSettings(
-    int ShiftStartHour, int ShiftEndHour, HashSet<int> WorkingDays, IReadOnlyList<BreakWindow> Breaks, int FreezeWindowDays = 0)
+    TimeSpan DayStart, TimeSpan DayEnd, HashSet<int> WorkingDays, IReadOnlyList<BreakWindow> Breaks, int FreezeWindowDays = 0)
 {
     // The freeze (lock-out) window: today through the FreezeWindowDays-th working day after today.
     // Not-yet-started work planned to start before this moment doesn't move (see FreezeWindow).
@@ -61,6 +62,19 @@ public sealed record WorkCalendarSettings(
             (shiftStart, shiftEnd) = (6, 18);
         }
 
+        var (dayStart, dayEnd) = (TimeSpan.FromHours(shiftStart), TimeSpan.FromHours(shiftEnd));
+
+        // A shift ending at 00:00 ends at midnight. Shifts that run past midnight aren't supported (the
+        // shift form refuses them), so one found in the database is ignored rather than breaking the day.
+        var shifts = (await db.Shifts.AsNoTracking().Where(sh => sh.IsActive).ToListAsync(ct))
+            .Select(sh => (Start: sh.StartTime.ToTimeSpan(), End: sh.EndTime == TimeOnly.MinValue ? TimeSpan.FromHours(24) : sh.EndTime.ToTimeSpan()))
+            .Where(sh => sh.End > sh.Start)
+            .ToList();
+        if (shifts.Count > 0)
+        {
+            (dayStart, dayEnd) = (shifts.Min(sh => sh.Start), shifts.Max(sh => sh.End));
+        }
+
         var breaks = (await db.ShiftBreaks.AsNoTracking().Where(b => b.Shift.IsActive).ToListAsync(ct))
             .Select(b =>
             {
@@ -72,6 +86,6 @@ public sealed record WorkCalendarSettings(
             .OrderBy(b => b.Start)
             .ToList();
 
-        return new WorkCalendarSettings(shiftStart, shiftEnd, workingDays, breaks, Math.Clamp(Int("FreezeWindowDays", 0), 0, 30));
+        return new WorkCalendarSettings(dayStart, dayEnd, workingDays, breaks, Math.Clamp(Int("FreezeWindowDays", 0), 0, 30));
     }
 }

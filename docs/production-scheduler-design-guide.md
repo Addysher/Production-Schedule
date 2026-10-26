@@ -1077,12 +1077,18 @@ The working day used by the scheduler, the Quote Estimator and the Calendar come
 
 | Input | Source |
 |---|---|
-| Working window | `ShiftStartHour` – `ShiftEndHour` settings (default 06:00–18:00) |
+| Working day | The **active shifts**: earliest start to latest end, to the minute (e.g. 06:00–14:30). Only with no active shift: the `ShiftStartHour` – `ShiftEndHour` settings |
 | Working days | `WorkingDays` setting (0 = Sun … 6 = Sat; default Mon–Fri) |
 | Breaks | All break windows from **active** shifts combined |
 | Daily capacity | `Stations.DailyEqATarget`, or that day's `StationCapacityOverrides` row |
 
-A shift's own start/end times are stored but **do not shape the working window** (§9.4).
+Rules (v3.0):
+- **Shift times** are entered as 24-hour hour and minute lists. 00:00 as an end means midnight; shifts that run past midnight aren't supported.
+- **Breaks** must sit inside their shift and must not overlap; a break outside the shift is refused with a reason.
+- **Saving a shift**, or one of the calendar settings (`ShiftStartHour`, `ShiftEndHour`, `WorkingDays`, `FreezeWindowDays`), re-plans the schedule straight away.
+- **Frozen work** (§5.20) keeps its line, order and start, but its times follow the current day: a new break or shorter shift shows on frozen days too. It only moves later if a break now covers its start, or running work now finishes after it.
+- **Running work** is redrawn from now under the current day. What has already happened, and the original plan (for plan-vs-actual), are kept.
+- **On the Calendar** (Day view), breaks and any part of the first or last hour outside the working day are hatched above the job blocks.
 
 ---
 
@@ -1359,7 +1365,7 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 | 5 | Quote stage doesn't compare the earliest viable production date with the Est. Booked Delivery Date | Partly covered by the "Jobs needing final design" email (§5.21) |
 | 6 | ~~Approve for cutting shows on every `ready` job~~ | **Fixed v3.0:** only once saw files exist (§5.11) |
 | 7 | ~~Dashboard cards show current/next job, not member~~ | **Fixed v3.0:** member being made, the next one and members done |
-| 8 | Shift start/end times don't shape the working window (the Settings hours do) | The shift form says so |
+| 8 | ~~Shift start/end times don't shape the working window~~ | **Fixed v3.0:** the active shifts set the working day (§5.18) |
 | 9 | PRD reader untested against a real PaperlessJig file | Highest-value validation still outstanding |
 | 10 | Real MPS file names not yet seen — any `.mps` named after the job is accepted | Confirm with a real file |
 | 11 | ~~"Jobs late" tile vs sidebar "N late"~~ | **Fixed v3.0:** tile renamed "Behind schedule"; "late" means past due everywhere |

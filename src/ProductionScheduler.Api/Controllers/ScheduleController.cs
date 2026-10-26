@@ -67,11 +67,16 @@ public class ScheduleController : ControllerBase
     {
         var calendar = await WorkCalendarSettings.LoadAsync(_db);
         return new CalendarSettingsDto(
-            calendar.ShiftStartHour,
-            calendar.ShiftEndHour,
+            (int)Math.Floor(calendar.DayStart.TotalHours),
+            (int)Math.Ceiling(calendar.DayEnd.TotalHours),
             calendar.WorkingDays.OrderBy(d => d).ToList(),
             calendar.Breaks.Select(b => new BreakDto(b.Start.ToString(@"hh\:mm"), b.End.ToString(@"hh\:mm"))).ToList(),
-            calendar.FreezeUntil(Domain.SiteClock.Now));
+            calendar.FreezeUntil(Domain.SiteClock.Now),
+            Clock(calendar.DayStart),
+            Clock(calendar.DayEnd));
+
+        // "24:00" for a day that runs to midnight (TimeSpan's own format would wrap it to 00:00).
+        static string Clock(TimeSpan t) => $"{(int)t.TotalHours:00}:{t.Minutes:00}";
     }
 
     [HttpPost("generate")]

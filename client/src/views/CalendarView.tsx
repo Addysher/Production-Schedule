@@ -19,7 +19,7 @@ import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
 
 const ROW_HEIGHT = 52
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour: 18, workingDays: [1, 2, 3, 4, 5], breaks: [], freezeUntil: null }
+const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour: 18, workingDays: [1, 2, 3, 4, 5], breaks: [], freezeUntil: null, dayStart: '06:00', dayEnd: '18:00' }
 
 // Hatching for days inside the freeze window.
 const FROZEN_BG = 'repeating-linear-gradient(135deg, transparent, transparent 7px, var(--divider-faint) 7px, var(--divider-faint) 9px)'
@@ -421,30 +421,36 @@ export function CalendarView() {
                         {hours.map((h) => (
                           <div key={h} style={{ position: 'absolute', top: (h - shiftStartHour) * ROW_HEIGHT, width: '100%', height: ROW_HEIGHT, borderBottom: '1px solid var(--divider-faint)' }} />
                         ))}
-                        {calendar.breaks.map((b) => {
-                          const top = (hoursOf(b.start) - shiftStartHour) * ROW_HEIGHT
-                          const height = (hoursOf(b.end) - hoursOf(b.start)) * ROW_HEIGHT
-                          return (
+                        {[
+                          // Breaks, plus any part of the first/last hour outside the working day (e.g. 14:30–15:00).
+                          ...calendar.breaks.map((b) => ({ key: `b${b.start}`, from: hoursOf(b.start), to: hoursOf(b.end), label: 'Break', title: `Break ${b.start}–${b.end}` })),
+                          { key: 'before', from: shiftStartHour, to: hoursOf(calendar.dayStart), label: '', title: `Work starts at ${calendar.dayStart}` },
+                          { key: 'after', from: hoursOf(calendar.dayEnd), to: shiftEndHour, label: '', title: `Work ends at ${calendar.dayEnd}` },
+                        ]
+                          .filter((o) => o.to > o.from && o.from >= shiftStartHour && o.to <= shiftEndHour)
+                          .map((o) => (
                             <div
-                              key={b.start}
-                              title={`Break ${b.start}–${b.end}`}
+                              key={o.key}
+                              title={o.title}
                               style={{
                                 position: 'absolute',
-                                top,
-                                height,
+                                top: (o.from - shiftStartHour) * ROW_HEIGHT,
+                                height: (o.to - o.from) * ROW_HEIGHT,
                                 left: 0,
                                 right: 0,
                                 background: 'repeating-linear-gradient(45deg, var(--divider-faint), var(--divider-faint) 6px, var(--border-subtle) 6px, var(--border-subtle) 12px)',
+                                opacity: 0.85,
                                 fontSize: 10,
-                                color: 'var(--text-faint)',
+                                color: 'var(--text-muted)',
                                 padding: '1px 6px',
-                                zIndex: 0,
+                                // Above the job blocks, so work that runs through a break is easy to spot.
+                                zIndex: 2,
+                                pointerEvents: 'none',
                               }}
                             >
-                              Break
+                              {o.label}
                             </div>
-                          )
-                        })}
+                          ))}
                         {blocksForStationDay(station.id, anchorDate).map(({ item, segment }, idx) => {
                           const start = new Date(segment.start)
                           const end = new Date(segment.end)

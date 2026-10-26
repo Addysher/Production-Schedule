@@ -29,8 +29,8 @@ public class QuoteController : ControllerBase
         }
 
         var calendar = await WorkCalendarSettings.LoadAsync(_db);
-        var shiftStartHour = calendar.ShiftStartHour;
-        var shiftEndHour = calendar.ShiftEndHour;
+        var shiftStartHour = calendar.DayStart;
+        var shiftEndHour = calendar.DayEnd;
         var workingDays = calendar.WorkingDays;
         var now = SiteClock.Now;
         var results = new List<QuoteLineResult>();

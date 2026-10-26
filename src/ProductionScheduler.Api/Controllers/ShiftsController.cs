@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ProductionScheduler.Api.Dtos;
 using ProductionScheduler.Domain.Entities;
 using ProductionScheduler.Infrastructure;
+using ProductionScheduler.Scheduling;
 
 namespace ProductionScheduler.Api.Controllers;
 
@@ -13,10 +14,55 @@ namespace ProductionScheduler.Api.Controllers;
 public class ShiftsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IScheduleGenerationService _scheduleGenerationService;
 
-    public ShiftsController(AppDbContext db)
+    public ShiftsController(AppDbContext db, IScheduleGenerationService scheduleGenerationService)
     {
         _db = db;
+        _scheduleGenerationService = scheduleGenerationService;
+    }
+
+    // The active shifts set the working day (start to end) and its breaks, so a shift has to make sense on
+    // its own: it starts before it ends (00:00 as an end means midnight; overnight shifts aren't supported)
+    // and every break sits inside it without overlapping another.
+    private static string? Problem(UpsertShiftRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return "Give the shift a name.";
+        }
+
+        var start = request.StartTime.ToTimeSpan();
+        var end = request.EndTime == TimeOnly.MinValue ? TimeSpan.FromHours(24) : request.EndTime.ToTimeSpan();
+        if (end <= start)
+        {
+            return $"The shift must end after it starts ({request.StartTime:HH:mm} to {request.EndTime:HH:mm}). Shifts that run past midnight aren't supported.";
+        }
+
+        TimeSpan? previousEnd = null;
+        foreach (var b in request.Breaks.OrderBy(b => b.BreakStart))
+        {
+            var breakStart = b.BreakStart.ToTimeSpan();
+            var breakEnd = breakStart + TimeSpan.FromMinutes(b.BreakDurationMins);
+            if (b.BreakDurationMins <= 0)
+            {
+                return $"The break at {b.BreakStart:HH:mm} needs a length in minutes.";
+            }
+
+            if (breakStart < start || breakEnd > end)
+            {
+                return $"The break at {b.BreakStart:HH:mm} ({b.BreakDurationMins} min) is outside the shift ({request.StartTime:HH:mm} to {request.EndTime:HH:mm}).";
+            }
+
+            if (previousEnd is { } pe && breakStart < pe)
+            {
+                return $"The break at {b.BreakStart:HH:mm} overlaps the break before it.";
+            }
+
+            previousEnd = breakEnd;
+        }
+
+        return null;
     }
 
     private static ShiftDto ToDto(Shift s) => new(
@@ -40,6 +86,11 @@ public class ShiftsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ShiftDto>> Create(UpsertShiftRequest request)
     {
+        if (Problem(request) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
         var shift = new Shift
         {
             Name = request.Name,
@@ -50,6 +101,7 @@ public class ShiftsController : ControllerBase
         };
         _db.Shifts.Add(shift);
         await _db.SaveChangesAsync();
+        await _scheduleGenerationService.GenerateAsync(); // the working day may have changed
         return CreatedAtAction(nameof(GetById), new { id = shift.Id }, ToDto(shift));
     }
 
@@ -62,6 +114,11 @@ public class ShiftsController : ControllerBase
             return NotFound();
         }
 
+        if (Problem(request) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
         shift.Name = request.Name;
         shift.StartTime = request.StartTime;
         shift.EndTime = request.EndTime;
@@ -71,6 +128,7 @@ public class ShiftsController : ControllerBase
         shift.Breaks = request.Breaks.Select(b => new ShiftBreak { BreakStart = b.BreakStart, BreakDurationMins = b.BreakDurationMins }).ToList();
 
         await _db.SaveChangesAsync();
+        await _scheduleGenerationService.GenerateAsync();
         return ToDto(shift);
     }
 
@@ -85,6 +143,7 @@ public class ShiftsController : ControllerBase
 
         shift.IsActive = false;
         await _db.SaveChangesAsync();
+        await _scheduleGenerationService.GenerateAsync();
         return NoContent();
     }
 }
