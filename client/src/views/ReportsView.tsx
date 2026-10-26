@@ -41,7 +41,10 @@ export function ReportsView() {
     if (!dateFrom || !dateTo) return
     reportsApi
       .production(dateFrom, dateTo)
-      .then((rows) => setProductionRows(rows.map((r) => ({ station: r.stationName, date: r.date.slice(0, 10), value: r.eqa }))))
+      .then((rows) => {
+        setProductionRows(rows.map((r) => ({ station: r.stationName, date: r.date.slice(0, 10), value: r.eqa })))
+        setLoadError(null)
+      })
       .catch((e) => {
         setProductionRows([])
         setLoadError(errorText(e, 'Could not load the production report.'))
@@ -67,7 +70,10 @@ export function ReportsView() {
     if (!dateFrom || !dateTo) return
     reportsApi
       .completions(dateFrom, dateTo)
-      .then(setCompletedLateRows)
+      .then((rows) => {
+        setCompletedLateRows(rows)
+        setLoadError(null)
+      })
       .catch((e) => {
         setCompletedLateRows([])
         setLoadError(errorText(e, 'Could not load the completions report.'))

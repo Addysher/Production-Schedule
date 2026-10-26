@@ -32,9 +32,11 @@ public class EmailController : ControllerBase
         var result = new List<EmailReportStatusDto>();
         foreach (var key in EmailReports.Keys)
         {
+            // Scheduled and Send-now attempts both count here.
             var task = EmailReportService.LogTaskName(key);
-            var lastSent = await _db.MaintenanceLogs.Where(l => l.TaskName == task && l.Outcome == "success").MaxAsync(l => (DateTime?)l.RunAt);
-            var lastError = await _db.MaintenanceLogs.Where(l => l.TaskName == task && l.Outcome == "error").OrderByDescending(l => l.RunAt).FirstOrDefaultAsync();
+            var manualTask = EmailReportService.ManualLogTaskName(key);
+            var lastSent = await _db.MaintenanceLogs.Where(l => (l.TaskName == task || l.TaskName == manualTask) && l.Outcome == "success").MaxAsync(l => (DateTime?)l.RunAt);
+            var lastError = await _db.MaintenanceLogs.Where(l => (l.TaskName == task || l.TaskName == manualTask) && l.Outcome == "error").OrderByDescending(l => l.RunAt).FirstOrDefaultAsync();
             result.Add(new EmailReportStatusDto(
                 key, EmailReports.Title(key),
                 await SettingsReader.GetStringAsync(_db, $"Email{key}To", ""),
@@ -74,7 +76,7 @@ public class EmailController : ControllerBase
             return BadRequest($"Set who the {EmailReports.Title(key).ToLowerInvariant()} email goes to first.");
         }
 
-        var (sent, message) = await EmailReportService.SendAndLogAsync(_db, key, recipients, SiteClock.Now);
+        var (sent, message) = await EmailReportService.SendAndLogAsync(_db, key, recipients, SiteClock.Now, manual: true);
         return new SendEmailResultDto(sent, message);
     }
 }

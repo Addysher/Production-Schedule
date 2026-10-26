@@ -61,6 +61,12 @@ function ProtectedRoute({ children, adminOnly }: { children: ReactNode; adminOnl
   return <Layout>{children}</Layout>
 }
 
+// After signing in: the page that sent you to the login screen, if any.
+function BackToWhereYouWere({ fallback }: { fallback: string }) {
+  const from = (useLocation().state as { from?: { pathname?: string } } | null)?.from?.pathname
+  return <Navigate to={from && from !== '/login' ? from : fallback} replace />
+}
+
 // The kiosk is full screen (no sidebar or header) and open to any signed-in user.
 function KioskRoute({ children }: { children: ReactNode }) {
   const { user } = useAuth()
@@ -76,7 +82,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to={homePath(user)} replace /> : <LoginView />} />
+      <Route path="/login" element={user ? <BackToWhereYouWere fallback={homePath(user)} /> : <LoginView />} />
       <Route path="/kiosk" element={<KioskRoute><KioskPickerView /></KioskRoute>} />
       <Route path="/kiosk/:factoryId" element={<KioskRoute><KioskView /></KioskRoute>} />
       <Route

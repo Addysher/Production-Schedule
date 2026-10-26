@@ -75,12 +75,13 @@ public class EmailReportService : BackgroundService
                 continue;
             }
 
-            await SendAndLogAsync(db, key, recipients, now, ct);
+            await SendAndLogAsync(db, key, recipients, now, manual: false, ct);
         }
     }
 
-    // Shared with Settings → Email → Send now.
-    public static async Task<(bool Sent, string Message)> SendAndLogAsync(AppDbContext db, string key, string recipients, DateTime now, CancellationToken ct = default)
+    // Shared with Settings → Email → Send now. A manual send is logged under its own task name, so a test
+    // in the morning doesn't count as (or use up the retries of) that day's scheduled send.
+    public static async Task<(bool Sent, string Message)> SendAndLogAsync(AppDbContext db, string key, string recipients, DateTime now, bool manual, CancellationToken ct = default)
     {
         string message;
         var sent = false;
@@ -96,10 +97,12 @@ public class EmailReportService : BackgroundService
             message = $"Couldn't send the {EmailReports.Title(key).ToLowerInvariant()} email to {recipients}: {(ex.InnerException ?? ex).Message}";
         }
 
-        MaintenanceLogWriter.Add(db, LogTaskName(key), sent ? "success" : "error", message);
+        MaintenanceLogWriter.Add(db, manual ? ManualLogTaskName(key) : LogTaskName(key), sent ? "success" : "error", message);
         await db.SaveChangesAsync(ct);
         return (sent, message);
     }
 
     public static string LogTaskName(string key) => $"Email{key}";
+
+    public static string ManualLogTaskName(string key) => $"Email{key}Manual";
 }

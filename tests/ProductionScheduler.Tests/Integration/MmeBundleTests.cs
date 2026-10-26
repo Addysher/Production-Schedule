@@ -170,6 +170,32 @@ public class MmeBundleTests
     }
 
     [Fact]
+    public async Task ABundleAlreadyInTheWaitingFolder_ShowsItsRealState_AndAPartOneNeedsConfirming()
+    {
+        // As left by the bundler before jobs tracked their bundle: files straight in the waiting folder.
+        var f = await UseFreshFoldersAsync();
+        var whole = NewRef();
+        var part = NewRef();
+        await AddJobAsync(whole, "E17", "I31");
+        await AddJobAsync(part, "E17", "I31");
+        foreach (var (jobRef, ids) in new[] { (whole, new[] { "E17", "I31" }), (part, new[] { "E17" }) })
+        {
+            Directory.CreateDirectory(Path.Combine(f.Waiting, jobRef));
+            foreach (var id in ids) await File.WriteAllTextAsync(Path.Combine(f.Waiting, jobRef, $"{jobRef}{id}.mme"), "cut list");
+        }
+
+        await _f.PollMmeAsync();
+
+        Assert.Equal("waiting", (await JobAsync(whole)).SawBundleStatus);
+        Assert.Equal("bundling", (await JobAsync(part)).SawBundleStatus);
+        var admin = await _f.ClientAsync();
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsync($"/api/jobs/{part}/approve-for-cutting", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync($"/api/jobs/{whole}/approve-for-cutting", null)).StatusCode);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(f.Cutting, whole)).Length);
+        Assert.False(Directory.Exists(Path.Combine(f.Waiting, whole)));
+    }
+
+    [Fact]
     public async Task TheJobsList_ShowsWhereEachBundleIs()
     {
         var f = await UseFreshFoldersAsync();

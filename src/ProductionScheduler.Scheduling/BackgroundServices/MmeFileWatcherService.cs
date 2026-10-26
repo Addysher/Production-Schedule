@@ -118,11 +118,16 @@ public partial class MmeFileWatcherService : BackgroundService
 
         // 2. Promote every complete staged bundle (including ones finished by an SCH import since the last
         // pass) and refresh what each touched job shows.
-        if (Directory.Exists(stagingRoot))
+        // Waiting folders are included too, so bundles that were already there before jobs tracked their
+        // bundle state (or that someone changed by hand) show their real state.
+        foreach (var root in new[] { stagingRoot, waitingPath })
         {
-            foreach (var dir in Directory.GetDirectories(stagingRoot))
+            if (Directory.Exists(root))
             {
-                touched.Add(Path.GetFileName(dir));
+                foreach (var dir in Directory.GetDirectories(root))
+                {
+                    touched.Add(Path.GetFileName(dir));
+                }
             }
         }
 
@@ -158,35 +163,38 @@ public partial class MmeFileWatcherService : BackgroundService
             return; // held files were logged when they arrived
         }
 
-        if (staged.Length > 0 && IsComplete(job, staged))
-        {
-            if (Directory.Exists(waitingDir))
-            {
-                foreach (var file in staged)
-                {
-                    File.Move(file, Path.Combine(waitingDir, Path.GetFileName(file)), overwrite: true);
-                }
+        // Completeness counts every file the job has, wherever it is, so a waiting folder that only holds
+        // part of the design (left by the old bundler, or edited by hand) isn't reported as ready.
+        var waiting = Directory.Exists(waitingDir) ? Directory.GetFiles(waitingDir, "*.mme") : [];
+        var complete = IsComplete(job, staged.Concat(waiting));
 
+        if (staged.Length > 0 && complete)
+        {
+            // File by file rather than Directory.Move: the drop and waiting folders may be on different
+            // drives or shares, where a directory move fails.
+            Directory.CreateDirectory(waitingDir);
+            foreach (var file in staged)
+            {
+                File.Move(file, Path.Combine(waitingDir, Path.GetFileName(file)), overwrite: true);
+            }
+
+            if (Directory.GetFileSystemEntries(stagingDir).Length == 0)
+            {
                 Directory.Delete(stagingDir);
             }
-            else
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(waitingDir)!);
-                Directory.Move(stagingDir, waitingDir);
-            }
 
-            MaintenanceLogWriter.Add(db, LogTask, "success", $"Saw files for {jobRef} are complete ({staged.Length}) and in the waiting folder.", jobRef, waitingDir);
+            MaintenanceLogWriter.Add(db, LogTask, "success", $"Saw files for {jobRef} are complete ({staged.Length + waiting.Length}) and in the waiting folder.", jobRef, waitingDir);
         }
 
         var inWaiting = Directory.Exists(waitingDir) ? Directory.GetFiles(waitingDir, "*.mme").Length : 0;
         var stillStaged = Directory.Exists(stagingDir) ? Directory.GetFiles(stagingDir, "*.mme").Length : 0;
-        job.SawBundleStatus = inWaiting > 0 && stillStaged == 0 ? "waiting" : stillStaged > 0 ? "bundling" : job.SawBundleStatus;
+        job.SawBundleStatus = inWaiting + stillStaged == 0 ? job.SawBundleStatus : complete && stillStaged == 0 ? "waiting" : "bundling";
         job.SawFileCount = inWaiting + stillStaged;
     }
 
     // Complete = every member the design lists has its file. A job with no members yet (quote, or SCH
     // not imported) is never complete.
-    internal static bool IsComplete(Job job, IEnumerable<string> files)
+    public static bool IsComplete(Job job, IEnumerable<string> files)
     {
         if (job.Members.Count == 0)
         {

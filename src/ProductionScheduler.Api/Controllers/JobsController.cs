@@ -226,13 +226,14 @@ public class JobsController : ControllerBase
                 return BadRequest($"No saw files have arrived for '{jobRef}' yet, so there is nothing to send to the saw.");
             }
 
-            if (!force)
-            {
-                var have = Directory.GetFiles(stagingDir, "*.mme").Length;
-                return Conflict($"The saw files for '{jobRef}' are incomplete ({have} file(s) for {job.Members.Count} member(s)). Approve anyway?");
-            }
-
             sourceDir = stagingDir;
+        }
+
+        // Checked on the files themselves, wherever they are: a waiting folder can hold a partial set too.
+        var files = Directory.GetFiles(sourceDir, "*.mme");
+        if (!force && !MmeFileWatcherService.IsComplete(job, files))
+        {
+            return Conflict($"The saw files for '{jobRef}' are incomplete ({files.Length} file(s) for {job.Members.Count} member(s)). Approve anyway?");
         }
 
         if (Directory.Exists(destDir))
@@ -240,13 +241,36 @@ public class JobsController : ControllerBase
             return BadRequest($"'{destDir}' already exists, so the saw files can't be moved there. Clear it first.");
         }
 
+        // File by file (the waiting and cutting folders may be on different drives or shares, where a
+        // directory move fails); if one fails, the ones already moved go back so nothing changes.
+        var moved = new List<(string From, string To)>();
         try
         {
-            Directory.CreateDirectory(forCuttingBase);
-            Directory.Move(sourceDir, destDir);
+            Directory.CreateDirectory(destDir);
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                var to = Path.Combine(destDir, Path.GetFileName(file));
+                System.IO.File.Move(file, to);
+                moved.Add((file, to));
+            }
+
+            if (Directory.GetFileSystemEntries(sourceDir).Length == 0)
+            {
+                Directory.Delete(sourceDir);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            foreach (var (from, to) in moved)
+            {
+                try { System.IO.File.Move(to, from); } catch (IOException) { /* reported below */ }
+            }
+
+            if (Directory.Exists(destDir) && Directory.GetFileSystemEntries(destDir).Length == 0)
+            {
+                Directory.Delete(destDir);
+            }
+
             return BadRequest($"Failed to move the saw files to the cutting folder: {ex.Message}");
         }
 

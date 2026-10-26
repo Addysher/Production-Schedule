@@ -1,11 +1,13 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { EyeIcon } from '../components/EyeIcon'
 
 export function LoginView() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  // Back to the page that sent you here (e.g. a kiosk's factory after its session ended), else home.
+  const from = (useLocation().state as { from?: { pathname?: string } } | null)?.from?.pathname
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -17,7 +19,7 @@ export function LoginView() {
     setError(null)
     try {
       await login(username, password)
-      navigate('/dashboard')
+      navigate(from ?? '/dashboard', { replace: true })
     } catch {
       setError('Invalid username or password.')
     } finally {

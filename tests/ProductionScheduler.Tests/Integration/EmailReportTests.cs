@@ -57,9 +57,8 @@ public class EmailReportTests
 
         var report = await BuildAsync(EmailReports.NextDayJobs);
 
-        Assert.Contains("MAIL-NEXT", report.HtmlBody);
-        Assert.Contains("Mail Line", report.HtmlBody);
-        Assert.Contains("09:00", report.HtmlBody);
+        // Station heading, then that job's row starting at 09:00.
+        Assert.Matches(@"Mail Line —.*?<td[^>]*>09:00</td><td[^>]*>MAIL-NEXT</td>", report.HtmlBody);
     }
 
     [Fact]
@@ -95,8 +94,8 @@ public class EmailReportTests
 
         var report = await BuildAsync(EmailReports.DailyProduction);
 
-        Assert.Contains("Mail Made Line", report.HtmlBody);
-        Assert.Contains("50%", report.HtmlBody); // 20 of a 40 Eq target
+        // That station's own row: 20 made of a 40 Eq target.
+        Assert.Matches(@"<td[^>]*>Mail Made Line</td><td[^>]*>20</td><td[^>]*>40</td><td[^>]*>50%</td>", report.HtmlBody);
     }
 
     [Fact]
@@ -117,6 +116,22 @@ public class EmailReportTests
         Assert.Equal(1, await _f.WithDbAsync(db => db.MaintenanceLogs.CountAsync(l => l.TaskName == "EmailNextDayJobs" && l.Outcome == "success")));
         Assert.False(await _f.WithDbAsync(db => db.MaintenanceLogs.AnyAsync(l => l.TaskName == "EmailDailyProduction")));
         await _f.SetSettingsAsync(("EmailNextDayJobsTo", ""));
+    }
+
+    [Fact]
+    public async Task ATestSendInTheMorning_DoesNotStopThatDaysScheduledSend()
+    {
+        var pickup = await UsePickupFolderAsync();
+        await _f.SetSettingsAsync(("EmailDailyProductionTo", "office@example.com"), ("EmailDailyProductionHour", "0"),
+            ("EmailNextDayJobsTo", ""), ("EmailReadyForProductionTo", ""));
+        var admin = await _f.ClientAsync();
+        var manual = await (await admin.PostAsync("/api/email/reports/DailyProduction/send-now", null)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(manual.GetProperty("sent").GetBoolean());
+
+        await new EmailReportService(_f.ScopeFactory, NullLogger<EmailReportService>.Instance).PollAsync(default);
+
+        Assert.Equal(2, Directory.GetFiles(pickup, "*.eml").Length); // the test send and the scheduled one
+        await _f.SetSettingsAsync(("EmailDailyProductionTo", ""));
     }
 
     [Fact]
