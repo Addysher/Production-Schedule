@@ -16,6 +16,7 @@ import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { isMovableStatus } from '../auth/permissions'
 import { JobEditModal } from '../components/JobEditModal'
 import { errorText } from '../components/Modal'
+import { approveForCuttingWithConfirm, canApproveForCutting } from '../components/sawFiles'
 import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
 
 function Tile({
@@ -140,7 +141,7 @@ export function DashboardView() {
   async function approveForCutting(jobRef: string) {
     setNotice(null)
     try {
-      await jobsApi.approveForCutting(jobRef)
+      await approveForCuttingWithConfirm(jobRef)
     } catch (e) {
       setNotice(errorText(e, `Could not approve ${jobRef} for cutting.`))
     }
@@ -275,7 +276,7 @@ export function DashboardView() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        {user?.isAdmin && j.status === 'ready' && (
+                        {user?.isAdmin && canApproveForCutting(j) && (
                           <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => approveForCutting(j.jobRef)}>
                             Approve
                           </button>
@@ -387,9 +388,9 @@ export function DashboardView() {
               : undefined
           }
           onApproveForCutting={
-            user?.isAdmin && selectedJob.status === 'ready'
+            user?.isAdmin && canApproveForCutting(selectedJob)
               ? async () => {
-                  await jobsApi.approveForCutting(selectedJob.jobRef)
+                  if (!(await approveForCuttingWithConfirm(selectedJob.jobRef))) return
                   setSelectedJob(null)
                   await reloadAfterChange()
                 }

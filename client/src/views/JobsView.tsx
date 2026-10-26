@@ -8,6 +8,7 @@ import { resolveStatusStyle } from '../components/statusStyles'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { JobEditModal, updateRequestFrom } from '../components/JobEditModal'
 import { errorText } from '../components/Modal'
+import { approveForCuttingWithConfirm, canApproveForCutting } from '../components/sawFiles'
 import { signalJobsChanged } from '../utils/appEvents'
 import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
@@ -118,7 +119,9 @@ export function JobsView() {
 
   const bulkApproveForCutting = () =>
     bulk('Approve for cutting', async (jobRef) => {
-      if (jobs.find((j) => j.jobRef === jobRef)?.status !== 'ready') return 'skipped'
+      // Only complete bundles in bulk; an incomplete one needs its own confirmation from the job's popup.
+      const job = jobs.find((j) => j.jobRef === jobRef)
+      if (job?.status !== 'ready' || job.sawBundleStatus !== 'waiting') return 'skipped'
       await jobsApi.approveForCutting(jobRef)
       return 'done'
     })
@@ -299,9 +302,9 @@ export function JobsView() {
               : undefined
           }
           onApproveForCutting={
-            user?.isAdmin && selectedJob.status === 'ready'
+            user?.isAdmin && canApproveForCutting(selectedJob)
               ? async () => {
-                  await jobsApi.approveForCutting(selectedJob.jobRef)
+                  if (!(await approveForCuttingWithConfirm(selectedJob.jobRef))) return
                   setSelectedJob(null)
                   await reloadAfterChange()
                 }

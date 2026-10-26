@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext'
 import { errorText } from './Modal'
 import type { JobDetailDto } from '../types/api'
 import { StatusPill } from './StatusPill'
+import { canApproveForCutting, sawFilesLabel } from './sawFiles'
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
@@ -75,6 +76,7 @@ export function JobDetailPopup({
           <Field label="Product" value={job.componentType} />
           <Field label="SCH component type" value={job.schComponentType} />
           <Field label="Client Name" value={job.clientName} />
+          <Field label="Client Ref Number" value={job.clientRefNumber} />
           <Field label="Site Address" value={job.siteAddress} />
           <Field label="Site Suburb" value={job.siteSuburb} />
           <Field label="Supervisor Name" value={job.supervisorName} />
@@ -87,6 +89,7 @@ export function JobDetailPopup({
           <Field label="Booked Delivery Date" value={job.bookedDeliveryDate} />
           <Field label="Invoice Number" value={job.invoiceNumber} />
           <Field label="Delivered" value={job.delivered ? 'Yes' : 'No'} />
+          <Field label="Saw files" value={sawFilesLabel(job)} />
         </div>
 
         {job.totalEqA ? (
@@ -110,7 +113,7 @@ export function JobDetailPopup({
         {error && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 12 }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-          {user?.isAdmin && job.status === 'ready' && onApproveForCutting && (
+          {user?.isAdmin && canApproveForCutting(job) && onApproveForCutting && (
             <button className="btn btn-primary" onClick={approve} disabled={busy}>
               Approve for cutting
             </button>

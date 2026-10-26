@@ -210,6 +210,12 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("SawBundleStatus")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SawFileCount")
+                        .HasColumnType("int");
+
                     b.Property<string>("SchComponentType")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");

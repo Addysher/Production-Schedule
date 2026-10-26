@@ -27,9 +27,9 @@ public class JobsController : ControllerBase
     }
 
     private async Task<JobDetailDto> ToDetailDtoAsync(Job j) =>
-        ToDetailDto(j, (await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(j.JobRef));
+        ToDetailDto(j, (await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(j.JobRef), await _db.JobMembers.CountAsync(m => m.JobRef == j.JobRef));
 
-    private static JobDetailDto ToDetailDto(Job j, bool isFrozen)
+    private static JobDetailDto ToDetailDto(Job j, bool isFrozen, int memberCount)
     {
         var isLate = JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, SiteClock.Now);
         return new JobDetailDto(
@@ -38,7 +38,8 @@ public class JobsController : ControllerBase
             j.TotalEqA, j.CompletedEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
             j.InvoiceNumber, j.Delivered, j.Status, isLate, j.DesignStatus,
-            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType, isFrozen, j.ClientRefNumber);
+            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType, isFrozen, j.ClientRefNumber,
+            j.SawBundleStatus, j.SawFileCount, memberCount);
     }
 
     [HttpGet]
@@ -63,7 +64,7 @@ public class JobsController : ControllerBase
                     j.EstimatedCompletionDate,
                     JobStatusService.IsAtRisk(j.EstimatedCompletionDate, dueDate, j.Status, now, atRiskBufferMinutes),
                     JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now),
-                    frozen.Contains(j.JobRef));
+                    frozen.Contains(j.JobRef), j.SawBundleStatus);
             })
             .ToList();
     }
@@ -184,9 +185,9 @@ public class JobsController : ControllerBase
 
     [HttpPost("{jobRef}/approve-for-cutting")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<JobDetailDto>> ApproveForCutting(string jobRef)
+    public async Task<ActionResult<JobDetailDto>> ApproveForCutting(string jobRef, [FromQuery] bool force = false)
     {
-        var job = await _db.Jobs.FirstOrDefaultAsync(j => j.JobRef == jobRef);
+        var job = await _db.Jobs.Include(j => j.Members).FirstOrDefaultAsync(j => j.JobRef == jobRef);
         if (job is null)
         {
             return NotFound();
@@ -205,22 +206,45 @@ public class JobsController : ControllerBase
             return BadRequest("SawFilesDoNotCutPath / SawFilesForCuttingPath are not configured in Settings.");
         }
 
+        // A complete bundle is in the waiting folder (§5.11). One still being collected is only sent to the
+        // saw when the Admin confirms it (force) — e.g. a member that legitimately has no saw file.
         var sourceDir = Path.Combine(doNotCutBase, jobRef);
         var destDir = Path.Combine(forCuttingBase, jobRef);
+        var rawFilesBase = settings.GetValueOrDefault("RawFilesPath");
+        var stagingDir = string.IsNullOrWhiteSpace(rawFilesBase) ? null : Path.Combine(rawFilesBase, MmeFileWatcherService.StagingFolderName, jobRef);
 
         if (!Directory.Exists(sourceDir))
         {
-            return BadRequest($"Bundle folder for '{jobRef}' was not found at '{sourceDir}'. The MME bundler may not have run yet.");
+            if (stagingDir is null || !Directory.Exists(stagingDir))
+            {
+                return BadRequest($"No saw files have arrived for '{jobRef}' yet, so there is nothing to send to the saw.");
+            }
+
+            if (!force)
+            {
+                var have = Directory.GetFiles(stagingDir, "*.mme").Length;
+                return Conflict($"The saw files for '{jobRef}' are incomplete ({have} file(s) for {job.Members.Count} member(s)). Approve anyway?");
+            }
+
+            sourceDir = stagingDir;
+        }
+
+        if (Directory.Exists(destDir))
+        {
+            return BadRequest($"'{destDir}' already exists, so the saw files can't be moved there. Clear it first.");
         }
 
         try
         {
+            Directory.CreateDirectory(forCuttingBase);
             Directory.Move(sourceDir, destDir);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return BadRequest($"Failed to move job folder to the cutting path: {ex.Message}");
+            return BadRequest($"Failed to move the saw files to the cutting folder: {ex.Message}");
         }
+
+        job.SawBundleStatus = "cutting";
 
         var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         job.Status = "approved";

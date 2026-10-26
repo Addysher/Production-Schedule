@@ -14,6 +14,7 @@ import { StationModal } from '../components/StationModal'
 import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 import { JobEditModal } from '../components/JobEditModal'
 import { errorText } from '../components/Modal'
+import { approveForCuttingWithConfirm, canApproveForCutting } from '../components/sawFiles'
 import { signalJobsChanged, startAutoRefresh } from '../utils/appEvents'
 
 const ROW_HEIGHT = 52
@@ -568,9 +569,9 @@ export function CalendarView() {
           onScheduleManually={canPin(selectedJob) ? () => { setPinning(selectedJob); setSelectedJob(null) } : undefined}
           onEdit={user?.isAdmin ? () => { setEditing(selectedJob); setSelectedJob(null) } : undefined}
           onApproveForCutting={
-            user?.isAdmin && selectedJob.status === 'ready'
+            user?.isAdmin && canApproveForCutting(selectedJob)
               ? async () => {
-                  await jobsApi.approveForCutting(selectedJob.jobRef)
+                  if (!(await approveForCuttingWithConfirm(selectedJob.jobRef))) return
                   setSelectedJob(null)
                   await reloadAfterChange()
                 }

@@ -48,6 +48,12 @@ public class Job
     public int? MpsStationId { get; set; }       // station whose DataIn currently holds the MPS; NULL = still in the pool
     public Station? MpsStation { get; set; }
 
+    // §5.11: where the job's saw-file (MME) bundle is. NULL = no files yet; 'bundling' = collecting in
+    // RawFilesPath\_bundling until every member has its file; 'waiting' = complete, in SawFilesDoNotCutPath;
+    // 'cutting' = approved, in SawFilesForCuttingPath.
+    public string? SawBundleStatus { get; set; }
+    public int SawFileCount { get; set; }
+
     // Manual scheduling override
     public bool IsManuallyScheduled { get; set; }
     public int? ManualStationId { get; set; }

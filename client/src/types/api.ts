@@ -88,6 +88,10 @@ export interface BatchcutWatchPathDto {
 // Status values per §5.0 — 'late' is computed client-side from dueDate, not a stored workflow value.
 export type JobStatus = 'scheduled' | 'ready' | 'approved' | 'cut' | 'in-production' | 'completed'
 
+// §5.11: where the job's saw-file bundle is — null: no files yet; bundling: still collecting (some
+// members missing); waiting: complete, ready to approve; cutting: approved and with the saw.
+export type SawBundleStatus = null | 'bundling' | 'waiting' | 'cutting'
+
 export interface JobSummaryDto {
   id: number
   jobRef: string
@@ -107,6 +111,7 @@ export interface JobSummaryDto {
   isAtRisk: boolean
   isBehindSchedule: boolean
   isFrozen: boolean
+  sawBundleStatus: SawBundleStatus
 }
 
 export interface JobDetailDto {
@@ -139,6 +144,9 @@ export interface JobDetailDto {
   schComponentType: string | null
   isFrozen: boolean
   clientRefNumber: string | null
+  sawBundleStatus: SawBundleStatus
+  sawFileCount: number
+  memberCount: number
 }
 
 export interface UpdateJobRequest {

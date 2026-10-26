@@ -96,7 +96,7 @@ public class SchImportService : BackgroundService
     }
 
     // File timestamps are compared in UTC on purpose — this is about the file's age, not a wall-clock reading.
-    private static bool IsSettled(string path, int settleSeconds)
+    internal static bool IsSettled(string path, int settleSeconds)
     {
         try
         {
