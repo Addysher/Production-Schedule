@@ -9,19 +9,22 @@ export interface AuthState {
   role: Role
   isAdmin: boolean
   canReschedule: boolean
+  factoryId: number | null // a Kiosk login only ever shows this factory's display
 }
 
-const toAuthState = (username: string, role: Role): AuthState => ({
+const toAuthState = (username: string, role: Role, factoryId: number | null = null): AuthState => ({
   username,
   role,
   isAdmin: role === 'Admin',
   canReschedule: canRescheduleRole(role),
+  factoryId: role === 'Kiosk' ? factoryId : null,
 })
 
 interface StoredSession {
   token: string
   username: string
   role: Role
+  factoryId?: number | null
 }
 
 interface AuthContextValue {
@@ -77,7 +80,7 @@ function restoreSession(): AuthState | null {
   const stored = readStoredSession()
   if (!stored) return null
   setAuthToken(stored.token)
-  return toAuthState(stored.username, stored.role)
+  return toAuthState(stored.username, stored.role, stored.factoryId ?? null)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -92,8 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const response = await authApi.login(username, password)
     setAuthToken(response.token)
-    writeStoredSession({ token: response.token, username: response.username, role: response.role })
-    setUser(toAuthState(response.username, response.role))
+    writeStoredSession({ token: response.token, username: response.username, role: response.role, factoryId: response.factoryId })
+    setUser(toAuthState(response.username, response.role, response.factoryId))
   }, [])
 
   // A 401 from any API call (expired/invalid token) drops the session back to the login screen.

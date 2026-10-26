@@ -44,7 +44,7 @@ public class AuthController : ControllerBase
         await _db.SaveChangesAsync();
 
         var token = _jwtTokenService.GenerateToken(user);
-        return Ok(new LoginResponse(token, user.Username, user.Role));
+        return Ok(new LoginResponse(token, user.Username, user.Role, user.Role == "Kiosk" ? user.FactoryId : null));
     }
 
     [HttpPost("logout")]

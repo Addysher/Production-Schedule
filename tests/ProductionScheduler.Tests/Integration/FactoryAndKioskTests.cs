@@ -66,7 +66,8 @@ public class FactoryAndKioskTests
     public async Task AKioskAccount_CanReadTheDisplayData_ButChangeNothing()
     {
         var admin = await _f.ClientAsync();
-        var created = await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_floor", password = "Pass1234!", role = "Kiosk" });
+        var factoryId = await IdOf(await admin.PostAsJsonAsync("/api/factories", new { name = "Kiosk Floor Factory", isActive = true }));
+        var created = await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_floor", password = "Pass1234!", role = "Kiosk", factoryId });
         Assert.True(created.IsSuccessStatusCode, await created.Content.ReadAsStringAsync());
         var kiosk = await _f.ClientAsync("kiosk_floor", "Pass1234!");
 
@@ -78,5 +79,27 @@ public class FactoryAndKioskTests
         Assert.Equal(HttpStatusCode.Forbidden, (await kiosk.PostAsync("/api/schedule/generate", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await kiosk.PostAsJsonAsync("/api/factories", new { name = "Nope", isActive = true })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await kiosk.PostAsJsonAsync("/api/jobs/X/schedule-manually", new { stationId = 1, scheduleDate = "2030-01-01" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task EachFactoryHasOneKioskLogin_WhichOpensOntoItsDisplay()
+    {
+        var admin = await _f.ClientAsync();
+        var factoryId = await IdOf(await admin.PostAsJsonAsync("/api/factories", new { name = "Kiosk Login Factory", isActive = true }));
+
+        // A kiosk login must name its factory, and a factory gets only one.
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_nofactory", password = "Pass1234!", role = "Kiosk" })).StatusCode);
+        var kioskUser = await IdOf(await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_one", password = "Pass1234!", role = "Kiosk", factoryId }));
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_two", password = "Pass1234!", role = "Kiosk", factoryId })).StatusCode);
+
+        var login = await (await _f.AnonymousClient().PostAsJsonAsync("/api/auth/login", new { username = "kiosk_one", password = "Pass1234!" }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(factoryId, login.GetProperty("factoryId").GetInt32());
+
+        // Other roles never carry a factory; deleting the factory leaves the login without one.
+        var viewer = await (await admin.PostAsJsonAsync("/api/users", new { username = "kiosk_viewer", password = "Pass1234!", role = "Viewer", factoryId })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Null, viewer.GetProperty("factoryId").ValueKind);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/factories/{factoryId}")).StatusCode);
+        Assert.Null(await _f.WithDbAsync(db => db.Users.Where(u => u.Id == kioskUser).Select(u => u.FactoryId).SingleAsync()));
     }
 }

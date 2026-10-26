@@ -14,5 +14,6 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         b.HasIndex(x => x.Username).IsUnique();
         b.Property(x => x.PasswordHash).HasMaxLength(256).IsRequired();
         b.Property(x => x.Role).HasMaxLength(20).IsRequired();
+        b.HasOne(x => x.Factory).WithMany().HasForeignKey(x => x.FactoryId).OnDelete(DeleteBehavior.SetNull);
     }
 }

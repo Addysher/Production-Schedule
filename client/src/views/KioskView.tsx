@@ -58,6 +58,7 @@ function KioskShell({ title, children }: { title: string; children: React.ReactN
 }
 
 export function KioskPickerView() {
+  const { user } = useAuth()
   const [factories, setFactories] = useState<FactoryDto[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,6 +68,15 @@ export function KioskPickerView() {
       .then((all) => setFactories(all.filter((f) => f.isActive)))
       .catch((e) => setError(errorText(e, 'Could not load the factories.')))
   }, [])
+
+  // A Kiosk login shows only its own factory; one without a factory has nothing to show yet.
+  if (user?.role === 'Kiosk') {
+    return (
+      <KioskShell title="Kiosk display">
+        <div style={{ fontSize: 20, color: 'var(--text-muted)' }}>This kiosk login isn't linked to a factory. An Admin can set its factory in Settings → Users.</div>
+      </KioskShell>
+    )
+  }
 
   return (
     <KioskShell title="Choose a factory">

@@ -905,6 +905,9 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("FactoryId")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -927,6 +930,8 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FactoryId");
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -1105,6 +1110,16 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Station");
+                });
+
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.User", b =>
+                {
+                    b.HasOne("ProductionScheduler.Domain.Entities.Factory", "Factory")
+                        .WithMany()
+                        .HasForeignKey("FactoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Factory");
                 });
 
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.BatchcutWatchPath", b =>

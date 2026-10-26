@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { jobsApi } from './api/jobs'
 import { Layout } from './components/Layout'
@@ -13,8 +13,9 @@ import { SettingsView } from './views/SettingsView'
 import { KioskPickerView, KioskView } from './views/KioskView'
 import type { AuthState } from './auth/AuthContext'
 
-// A Kiosk account only ever sees the kiosk page.
-const homePath = (user: AuthState | null) => (!user ? '/login' : user.role === 'Kiosk' ? '/kiosk' : '/dashboard')
+// A Kiosk account only ever sees its own factory's kiosk page.
+const kioskPath = (user: AuthState) => (user.factoryId ? `/kiosk/${user.factoryId}` : '/kiosk')
+const homePath = (user: AuthState | null) => (!user ? '/login' : user.role === 'Kiosk' ? kioskPath(user) : '/dashboard')
 
 // Runs GET /api/jobs/status-refresh once per session before any authenticated view renders (§7).
 function useStatusRefreshOnMount(enabled: boolean) {
@@ -46,7 +47,7 @@ function ProtectedRoute({ children, adminOnly }: { children: ReactNode; adminOnl
     return <Navigate to="/login" state={{ from: location }} replace />
   }
   if (user.role === 'Kiosk') {
-    return <Navigate to="/kiosk" replace />
+    return <Navigate to={kioskPath(user)} replace />
   }
   if (adminOnly && !user.isAdmin) {
     return <Navigate to="/dashboard" replace />
@@ -67,12 +68,17 @@ function BackToWhereYouWere({ fallback }: { fallback: string }) {
   return <Navigate to={from && from !== '/login' ? from : fallback} replace />
 }
 
-// The kiosk is full screen (no sidebar or header) and open to any signed-in user.
+// The kiosk is full screen (no sidebar or header) and open to any signed-in user. A Kiosk login is tied
+// to one factory: it's always taken to that factory's display, never the list or another factory's.
 function KioskRoute({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const location = useLocation()
+  const { factoryId } = useParams()
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+  if (user.role === 'Kiosk' && user.factoryId && factoryId !== String(user.factoryId)) {
+    return <Navigate to={kioskPath(user)} replace />
   }
   return <>{children}</>
 }

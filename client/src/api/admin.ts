@@ -39,10 +39,10 @@ export const shiftsApi = {
 
 export const usersApi = {
   getAll: () => apiClient.get<UserDto[]>('/users').then((r) => r.data),
-  create: (username: string, password: string, role: string) =>
-    apiClient.post<UserDto>('/users', { username, password, role }).then((r) => r.data),
-  update: (id: number, role: string, isActive: boolean) =>
-    apiClient.put<UserDto>(`/users/${id}`, { role, isActive }).then((r) => r.data),
+  create: (username: string, password: string, role: string, factoryId: number | null = null) =>
+    apiClient.post<UserDto>('/users', { username, password, role, factoryId }).then((r) => r.data),
+  update: (id: number, role: string, isActive: boolean, factoryId: number | null = null) =>
+    apiClient.put<UserDto>(`/users/${id}`, { role, isActive, factoryId }).then((r) => r.data),
   resetPassword: (id: number, newPassword: string) =>
     apiClient.put(`/users/${id}/reset-password`, { newPassword }),
   remove: (id: number) => apiClient.delete(`/users/${id}`),

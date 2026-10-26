@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
   usersApi,
+  factoriesApi,
   settingsApi,
   productsApi,
   batchcutWatchPathsApi,
 } from '../api/admin'
 import { logsApi } from '../api/logs'
 import type {
+  FactoryDto,
   UserDto,
   SettingDto,
   ProductDto,
@@ -91,29 +93,52 @@ function useAttempt() {
 
 function UsersSection() {
   const [rows, setRows] = useState<UserDto[]>([])
-  const [form, setForm] = useState({ username: '', password: '', role: 'Viewer' })
+  const [factories, setFactories] = useState<FactoryDto[]>([])
+  const [form, setForm] = useState({ username: '', password: '', role: 'Viewer', factoryId: '' })
   const { attempt, errorLine } = useAttempt()
 
-  const load = () => attempt(() => usersApi.getAll().then(setRows), 'Could not load users.')
+  const load = () => attempt(() => Promise.all([usersApi.getAll().then(setRows), factoriesApi.getAll().then(setFactories)]), 'Could not load users.')
   useEffect(() => {
     load()
   }, [])
 
+  // Each factory's kiosk display has one login: offer the active factories that don't have one yet.
+  const freeFactories = (except?: UserDto) =>
+    factories.filter((f) => f.isActive && !rows.some((u) => u.id !== except?.id && u.role === 'Kiosk' && u.isActive && u.factoryId === f.id))
+
   async function add() {
     if (!form.username || !form.password) return
-    if (await attempt(() => usersApi.create(form.username, form.password, form.role), 'Could not add the user.')) {
-      setForm({ username: '', password: '', role: 'Viewer' })
+    const factoryId = form.role === 'Kiosk' && form.factoryId ? Number(form.factoryId) : null
+    if (await attempt(() => usersApi.create(form.username, form.password, form.role, factoryId), 'Could not add the user.')) {
+      setForm({ username: '', password: '', role: 'Viewer', factoryId: '' })
       load()
     }
   }
 
   async function toggleActive(u: UserDto) {
-    if (await attempt(() => usersApi.update(u.id, u.role, !u.isActive), `Could not update ${u.username}.`)) load()
+    if (await attempt(() => usersApi.update(u.id, u.role, !u.isActive, u.factoryId), `Could not update ${u.username}.`)) load()
   }
 
   async function changeRole(u: UserDto, role: string) {
-    if (await attempt(() => usersApi.update(u.id, role, u.isActive), `Could not change ${u.username}'s role.`)) load()
+    // Becoming a kiosk login: start it on a factory that has no kiosk login yet (changeable afterwards).
+    const factoryId = role === 'Kiosk' ? (u.factoryId ?? freeFactories(u)[0]?.id ?? null) : null
+    if (await attempt(() => usersApi.update(u.id, role, u.isActive, factoryId), `Could not change ${u.username}'s role.`)) load()
   }
+
+  async function changeFactory(u: UserDto, factoryId: number) {
+    if (await attempt(() => usersApi.update(u.id, u.role, u.isActive, factoryId), `Could not change ${u.username}'s factory.`)) load()
+  }
+
+  const factorySelect = (value: string, onChange: (id: string) => void, options: FactoryDto[], label: string) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+      <option value="">Choose a factory…</option>
+      {options.map((f) => (
+        <option key={f.id} value={String(f.id)}>
+          {f.name}
+        </option>
+      ))}
+    </select>
+  )
 
   async function resetPassword(u: UserDto) {
     const next = window.prompt(`New password for ${u.username} (at least 8 characters):`)
@@ -130,6 +155,7 @@ function UsersSection() {
           <tr>
             <th>Username</th>
             <th>Role</th>
+            <th title="A Kiosk login shows one factory's display">Kiosk factory</th>
             <th>Active</th>
             <th>Last Login</th>
             <th></th>
@@ -146,6 +172,16 @@ function UsersSection() {
                   <option value="Admin">Admin</option>
                   <option value="Kiosk">Kiosk (display only)</option>
                 </select>
+              </td>
+              <td>
+                {u.role === 'Kiosk'
+                  ? factorySelect(
+                      u.factoryId ? String(u.factoryId) : '',
+                      (id) => id && changeFactory(u, Number(id)),
+                      freeFactories(u).concat(factories.filter((f) => f.id === u.factoryId && !freeFactories(u).includes(f))),
+                      `${u.username}'s factory`,
+                    )
+                  : '—'}
               </td>
               <td>{u.isActive ? 'Yes' : 'No'}</td>
               <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '—'}</td>
@@ -171,6 +207,7 @@ function UsersSection() {
                 <option value="Kiosk">Kiosk (display only)</option>
               </select>
             </td>
+            <td>{form.role === 'Kiosk' ? factorySelect(form.factoryId, (factoryId) => setForm({ ...form, factoryId }), freeFactories(), 'New kiosk login factory') : null}</td>
             <td colSpan={2}>
               <input
                 type="password"
