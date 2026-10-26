@@ -155,6 +155,21 @@ public class MmeBundleTests
     }
 
     [Fact]
+    public async Task MembersWithFourCharacterIds_StillCompleteTheirBundle()
+    {
+        var f = await UseFreshFoldersAsync();
+        var jobRef = NewRef();
+        await AddJobAsync(jobRef, "P05", "P05A");
+        await DropAsync(f, jobRef, "P05");
+        await DropAsync(f, jobRef, "P05A");
+
+        await _f.PollMmeAsync();
+
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(f.Waiting, jobRef)).Length);
+        Assert.Equal("waiting", (await JobAsync(jobRef)).SawBundleStatus);
+    }
+
+    [Fact]
     public async Task TheJobsList_ShowsWhereEachBundleIs()
     {
         var f = await UseFreshFoldersAsync();

@@ -14,7 +14,7 @@ namespace ProductionScheduler.Scheduling.BackgroundServices;
 //                                                                         (Approve for cutting) ──► SawFilesForCuttingPath\{JobRef}
 //
 // A bundle only reaches the waiting folder once it's complete, so nothing half-exported is ever approved.
-public class MmeFileWatcherService : BackgroundService
+public partial class MmeFileWatcherService : BackgroundService
 {
     public const string StagingFolderName = "_bundling";
     internal const string ErrorsFolderName = "_errors";
@@ -66,6 +66,9 @@ public class MmeFileWatcherService : BackgroundService
 
         var stagingRoot = Path.Combine(rawFilesPath, StagingFolderName);
         var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var knownRefs = await db.Jobs.AsNoTracking().Where(j => !j.IsArchived).Select(j => j.JobRef).ToListAsync(ct);
+
+        RehomeOrphanedFiles(stagingRoot, knownRefs);
 
         // 1. Collect newly dropped files. Each file is handled on its own, so one locked or badly named
         // file never holds up the rest.
@@ -78,7 +81,7 @@ public class MmeFileWatcherService : BackgroundService
                     continue; // still being written by the design program
                 }
 
-                var jobRef = DeriveJobRef(Path.GetFileNameWithoutExtension(file));
+                var jobRef = ResolveJobRef(Path.GetFileNameWithoutExtension(file), knownRefs);
                 if (string.IsNullOrEmpty(jobRef))
                 {
                     var errorsDir = Path.Combine(rawFilesPath, ErrorsFolderName);
@@ -190,14 +193,74 @@ public class MmeFileWatcherService : BackgroundService
             return false;
         }
 
-        var have = files.Select(f => DeriveMemberId(Path.GetFileNameWithoutExtension(f))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var have = files.Select(f => MemberIdOf(Path.GetFileNameWithoutExtension(f), job.JobRef)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return job.Members.All(m => have.Contains(m.MemberId));
     }
 
-    // "59778MWFE17" -> "59778MWF" (member IDs are always 3 characters, e.g. E17, I31).
+    // Files are named {JobRef}{MemberID}, and member IDs aren't a fixed length ("E17", but also "P05A" in
+    // real floor designs). So: the longest known job ref the name starts with; failing that (the SCH file
+    // hasn't been imported yet) the job-ref shape — digits then three letters, e.g. 58749MPF; and only
+    // then the old "last three characters are the member" rule.
+    internal static string ResolveJobRef(string fileNameWithoutExtension, IEnumerable<string> knownRefs)
+    {
+        var known = knownRefs
+            .Where(r => fileNameWithoutExtension.Length > r.Length && fileNameWithoutExtension.StartsWith(r, StringComparison.OrdinalIgnoreCase))
+            .MaxBy(r => r.Length);
+        if (known is not null)
+        {
+            return fileNameWithoutExtension[..known.Length];
+        }
+
+        var shape = JobRefShape().Match(fileNameWithoutExtension);
+        return shape.Success ? shape.Groups[1].Value : DeriveJobRef(fileNameWithoutExtension);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(\d+[A-Za-z]{3})(.+)$")]
+    private static partial System.Text.RegularExpressions.Regex JobRefShape();
+
+    // "59778MWFE17" -> "59778MWF": the last-resort rule for names that don't fit the job-ref shape.
     internal static string DeriveJobRef(string fileNameWithoutExtension) =>
         fileNameWithoutExtension.Length > 3 ? fileNameWithoutExtension[..^3] : string.Empty;
 
-    internal static string DeriveMemberId(string fileNameWithoutExtension) =>
-        fileNameWithoutExtension.Length > 3 ? fileNameWithoutExtension[^3..] : string.Empty;
+    internal static string MemberIdOf(string fileNameWithoutExtension, string jobRef) =>
+        fileNameWithoutExtension.Length > jobRef.Length ? fileNameWithoutExtension[jobRef.Length..] : string.Empty;
+
+    // A file staged under a guessed job ref (before its SCH arrived) moves to the right job's staging
+    // folder once that job is known.
+    private void RehomeOrphanedFiles(string stagingRoot, IReadOnlyCollection<string> knownRefs)
+    {
+        if (!Directory.Exists(stagingRoot))
+        {
+            return;
+        }
+
+        var known = knownRefs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in Directory.GetDirectories(stagingRoot).Where(d => !known.Contains(Path.GetFileName(d))))
+        {
+            foreach (var file in Directory.GetFiles(dir, "*.mme"))
+            {
+                var jobRef = ResolveJobRef(Path.GetFileNameWithoutExtension(file), knownRefs);
+                if (!known.Contains(jobRef))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var dest = Path.Combine(stagingRoot, jobRef);
+                    Directory.CreateDirectory(dest);
+                    File.Move(file, Path.Combine(dest, Path.GetFileName(file)), overwrite: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Couldn't move {File} to its job's bundle; will retry next pass.", file);
+                }
+            }
+
+            if (Directory.GetFileSystemEntries(dir).Length == 0)
+            {
+                Directory.Delete(dir);
+            }
+        }
+    }
 }

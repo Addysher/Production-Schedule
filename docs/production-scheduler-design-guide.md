@@ -923,8 +923,9 @@ RawFilesPath (drop) ─► RawFilesPath\_bundling\{JobRef} ─(every member has 
 ```
 
 **File names:**
-- **JobRef** = file name without extension, minus its last 3 characters (`59778MWFE17` → `59778MWF`).
-- **Member ID** = those last 3 characters (`E17`).
+- Files are named `{JobRef}{MemberID}.mme`. Member IDs are usually 3 characters (`E17`), but real floor designs also have 4-character ones (`P05A`), so the last-3 rule can't be relied on.
+- **JobRef** = the longest known job ref that the file name starts with. If the job isn't imported yet, it is the job-ref shape (digits then three letters, e.g. `58749MPF`). Only failing both is the old rule used (minus the last 3 characters). Files staged under a guessed ref move to the right job once it is imported.
+- **Member ID** = whatever follows the JobRef.
 
 **How files move:**
 - A file is only picked up once it has been unchanged for `SchFileSettleSeconds` (it may still be being written).
