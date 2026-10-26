@@ -48,7 +48,24 @@ public class ScheduleGenerationService : IScheduleGenerationService
         _setupResolver = setupResolver;
     }
 
+    // One run at a time across the whole app: a background import and a user's drag (each with its own
+    // DbContext) would otherwise rewrite the same ScheduleItems concurrently and collide.
+    private static readonly SemaphoreSlim RunLock = new(1, 1);
+
     public async Task<ScheduleGenerationResult> GenerateAsync(CancellationToken ct = default)
+    {
+        await RunLock.WaitAsync(ct);
+        try
+        {
+            return await GenerateCoreAsync(ct);
+        }
+        finally
+        {
+            RunLock.Release();
+        }
+    }
+
+    private async Task<ScheduleGenerationResult> GenerateCoreAsync(CancellationToken ct)
     {
         var stations = await _db.Stations.Where(s => s.IsActive).AsNoTracking().ToListAsync(ct);
         if (stations.Count == 0)
@@ -116,6 +133,20 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, shiftStartHour, shiftEndHour, workingDays, breaks);
         var usedEqaByStation = stations.ToDictionary(s => s.Id, _ => new Dictionary<DateOnly, double>());
+
+        // Work already done today counts against today's capacity — otherwise a station that has been
+        // busy since the morning is booked for a full day's capacity again from now.
+        var today = DateOnly.FromDateTime(generatedAt);
+        var dayStart = generatedAt.Date;
+        var doneToday = await _db.JobMembers
+            .Where(m => m.Done && m.CompletedAt >= dayStart && m.CompletedAt < dayStart.AddDays(1) && m.Job.AssignedStationId != null)
+            .GroupBy(m => m.Job.AssignedStationId!.Value)
+            .Select(g => new { StationId = g.Key, Eqa = g.Sum(m => m.CompletedEqA ?? m.EqaValue) })
+            .ToListAsync(ct);
+        foreach (var row in doneToday.Where(r => usedEqaByStation.ContainsKey(r.StationId)))
+        {
+            usedEqaByStation[row.StationId][today] = (double)row.Eqa;
+        }
         var busyUntil = stations.ToDictionary(s => s.Id, _ => windowStart);
 
         // --- Work already on the floor: occupy the station until its projected end. ---
@@ -170,7 +201,10 @@ public class ScheduleGenerationService : IScheduleGenerationService
         }
 
         // --- Queued work: route what can be routed, skip (and report) what cannot. ---
-        bool IsEffectivelyPinned(Job j) => j.IsManuallyScheduled && j.ManualStationId is int id && activeStationIds.Contains(id);
+        // A pin only holds while its station is active and still makes the job's product (the job's
+        // product can be changed after it was pinned).
+        bool IsEffectivelyPinned(Job j) => j.IsManuallyScheduled && j.ManualStationId is int id
+            && stations.Any(s => s.Id == id && s.ComponentType == j.ComponentType);
 
         // A pinned job goes to its pinned station; an unmoved cut job stays on the station it was cut for
         // (if that station is still active and still makes its product); everything else is routed.
@@ -182,6 +216,17 @@ public class ScheduleGenerationService : IScheduleGenerationService
 
         var routable = queued.Where(IsRoutable).ToList();
         var skipped = queued.Count - routable.Count;
+
+        // A job with nowhere to run (no active station makes its product) loses its old plan, rather
+        // than keeping a slot on a station that can no longer run it — so it shows as unscheduled.
+        foreach (var job in queued.Where(j => !IsRoutable(j)))
+        {
+            _db.ScheduleItems.RemoveRange(await _db.ScheduleItems.Where(si => si.JobRef == job.JobRef && si.ActualStart == null).ToListAsync(ct));
+            job.AssignedStationId = null;
+            job.EstimatedStartDate = null;
+            job.EstimatedCompletionDate = null;
+            job.UpdatedAt = generatedAt;
+        }
         var jobsByRef = routable.ToDictionary(j => j.JobRef);
 
         var assignments = MachineAssigner.Assign(
