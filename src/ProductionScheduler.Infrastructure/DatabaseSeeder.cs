@@ -32,6 +32,7 @@ public static class DatabaseSeeder
         ("MpsPreMoveDaysBeforeProduction", "1"),
         ("SchFileSettleSeconds", "5"), // ignore an .sch file until it has been unchanged this long (Sapphire may still be writing it)
         ("NightlyMaintenanceRunHour", "1"), // not named in the doc ("configurable, default 01:00") — see NightlyMaintenanceService
+        ("FreezeWindowDays", "3"), // v3.0 lock-out: today + this many working days are frozen; 0 = off (see FreezeWindow)
 
         // Appearance — read by any authenticated user (SettingsController) and applied client-side
         // (client/src/theme/applyTheme.ts) so Admin and Viewer see the same branding/mode.

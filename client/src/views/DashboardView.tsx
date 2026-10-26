@@ -239,7 +239,7 @@ export function DashboardView() {
                             Approve
                           </button>
                         )}
-                        {user?.canReschedule && isMovableStatus(j.status) && !!j.componentType && (
+                        {user?.canReschedule && isMovableStatus(j.status) && !!j.componentType && !j.isFrozen && (
                           <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => pinJob(j.jobRef)}>
                             Reschedule
                           </button>

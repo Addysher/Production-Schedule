@@ -106,8 +106,8 @@ export function JobsView() {
     }
   }
 
-  const canPin = (job: { status: JobStatus; componentType: string | null }) =>
-    !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType
+  const canPin = (job: { status: JobStatus; componentType: string | null; isFrozen: boolean }) =>
+    !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType && !job.isFrozen
 
   const chip = (label: string, count: number, value: JobStatus | 'late' | '', color?: string) => (
     <button

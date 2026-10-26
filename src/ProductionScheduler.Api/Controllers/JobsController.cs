@@ -26,7 +26,10 @@ public class JobsController : ControllerBase
         _jobStatusService = jobStatusService;
     }
 
-    private static JobDetailDto ToDetailDto(Job j)
+    private async Task<JobDetailDto> ToDetailDtoAsync(Job j) =>
+        ToDetailDto(j, (await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(j.JobRef));
+
+    private static JobDetailDto ToDetailDto(Job j, bool isFrozen)
     {
         var isLate = JobStatusService.IsLate(j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate, j.Status, SiteClock.Now);
         return new JobDetailDto(
@@ -35,7 +38,7 @@ public class JobsController : ControllerBase
             j.TotalEqA, j.CompletedEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
             j.InvoiceNumber, j.Delivered, j.Status, isLate, j.DesignStatus,
-            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType);
+            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType, isFrozen);
     }
 
     [HttpGet]
@@ -49,6 +52,7 @@ public class JobsController : ControllerBase
 
         var now = SiteClock.Now;
         var atRiskBufferMinutes = await SettingsReader.GetIntAsync(_db, "AtRiskBufferMinutes", 1440);
+        var frozen = await FreezeWindow.FrozenJobRefsAsync(_db);
         return jobs.Select(j =>
             {
                 var dueDate = j.EstBookedDeliveryDate ?? j.ExpectedDeliveryDate;
@@ -58,7 +62,8 @@ public class JobsController : ControllerBase
                     JobStatusService.IsLate(dueDate, j.Status, now),
                     j.EstimatedCompletionDate,
                     JobStatusService.IsAtRisk(j.EstimatedCompletionDate, dueDate, j.Status, now, atRiskBufferMinutes),
-                    JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now));
+                    JobStatusService.IsBehindSchedule(j.EstimatedCompletionDate, j.Status, now),
+                    frozen.Contains(j.JobRef));
             })
             .ToList();
     }
@@ -74,7 +79,7 @@ public class JobsController : ControllerBase
     public async Task<ActionResult<JobDetailDto>> GetById(int id)
     {
         var job = await _db.Jobs.AsNoTracking().FirstOrDefaultAsync(j => j.Id == id);
-        return job is null ? NotFound() : ToDetailDto(job);
+        return job is null ? NotFound() : await ToDetailDtoAsync(job);
     }
 
     [HttpPost]
@@ -114,7 +119,7 @@ public class JobsController : ControllerBase
 
         var result = await _scheduleGenerationService.GenerateAsync();
         var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.Id == job.Id);
-        return CreatedAtAction(nameof(GetById), new { id = job.Id }, new UpdateJobResponse(ToDetailDto(refreshed), result));
+        return CreatedAtAction(nameof(GetById), new { id = job.Id }, new UpdateJobResponse(await ToDetailDtoAsync(refreshed), result));
     }
 
     [HttpPut("{id:int}")]
@@ -153,7 +158,7 @@ public class JobsController : ControllerBase
 
         var result = await _scheduleGenerationService.GenerateAsync();
         var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.Id == id);
-        return new UpdateJobResponse(ToDetailDto(refreshed), result);
+        return new UpdateJobResponse(await ToDetailDtoAsync(refreshed), result);
     }
 
     [HttpDelete("{id:int}")]
@@ -222,7 +227,7 @@ public class JobsController : ControllerBase
         job.UpdatedAt = SiteClock.Now;
         await _db.SaveChangesAsync();
 
-        return ToDetailDto(job);
+        return await ToDetailDtoAsync(job);
     }
 
     [HttpPost("{jobRef}/schedule-manually")]
@@ -243,6 +248,21 @@ public class JobsController : ControllerBase
             return BadRequest(job.Status == "in-production"
                 ? $"Job '{jobRef}' is already in production and can't be moved."
                 : $"Job '{jobRef}' can't be scheduled while it is '{job.Status}'.");
+        }
+
+        var calendar = await WorkCalendarSettings.LoadAsync(_db);
+        if (calendar.FreezeUntil(SiteClock.Now) is DateTime freezeUntil)
+        {
+            var lastFrozenDay = freezeUntil.AddDays(-1);
+            if ((await FreezeWindow.FrozenJobRefsAsync(_db)).Contains(jobRef))
+            {
+                return BadRequest($"Job '{jobRef}' starts inside the freeze window (through {lastFrozenDay:ddd d MMM}) and can't be moved.");
+            }
+
+            if (request.ScheduleDate.ToDateTime(TimeOnly.MinValue) < freezeUntil)
+            {
+                return BadRequest($"{request.ScheduleDate:ddd d MMM} is inside the freeze window (through {lastFrozenDay:ddd d MMM}) — choose a later day.");
+            }
         }
 
         var station = await _db.Stations.AsNoTracking().FirstOrDefaultAsync(s => s.Id == request.StationId && s.IsActive);
@@ -266,7 +286,7 @@ public class JobsController : ControllerBase
 
         var result = await _scheduleGenerationService.GenerateAsync();
         var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef);
-        return new UpdateJobResponse(ToDetailDto(refreshed), result);
+        return new UpdateJobResponse(await ToDetailDtoAsync(refreshed), result);
     }
 
     [HttpDelete("{jobRef}/schedule-manually")]
@@ -287,6 +307,6 @@ public class JobsController : ControllerBase
 
         var result = await _scheduleGenerationService.GenerateAsync();
         var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef);
-        return new UpdateJobResponse(ToDetailDto(refreshed), result);
+        return new UpdateJobResponse(await ToDetailDtoAsync(refreshed), result);
     }
 }

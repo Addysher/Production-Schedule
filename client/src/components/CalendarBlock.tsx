@@ -2,6 +2,15 @@ import type { ScheduleItemDto, ScheduleSegmentDto } from '../types/api'
 import { resolveStatusStyle } from './statusStyles'
 import { CreepBadge } from './CreepBadge'
 
+export function LockIcon({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  )
+}
+
 export function CalendarBlock({
   item,
   segment,
@@ -54,6 +63,11 @@ export function CalendarBlock({
           </span>
         )}
         {item.creepDetected && <CreepBadge approved={!!item.creepApprovedAt} />}
+        {item.isFrozen && (
+          <span title="Inside the freeze window — can't be moved" style={{ display: 'inline-flex', opacity: 0.8 }}>
+            <LockIcon />
+          </span>
+        )}
       </div>
       {!compact && <div>{item.componentType}</div>}
       <div style={{ opacity: 0.8 }}>

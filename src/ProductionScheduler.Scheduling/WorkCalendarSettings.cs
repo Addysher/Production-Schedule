@@ -11,8 +11,31 @@ namespace ProductionScheduler.Scheduling;
 // but the factory runs one shared window, so a break is simply "a time of day nothing runs".
 // A shift's own start/end time is not used to shape the window — the Settings hours are the authority.
 public sealed record WorkCalendarSettings(
-    int ShiftStartHour, int ShiftEndHour, HashSet<int> WorkingDays, IReadOnlyList<BreakWindow> Breaks)
+    int ShiftStartHour, int ShiftEndHour, HashSet<int> WorkingDays, IReadOnlyList<BreakWindow> Breaks, int FreezeWindowDays = 0)
 {
+    // The freeze (lock-out) window: today through the FreezeWindowDays-th working day after today.
+    // Not-yet-started work planned to start before this moment doesn't move (see FreezeWindow).
+    // NULL when the window is off (FreezeWindowDays = 0).
+    public DateTime? FreezeUntil(DateTime now)
+    {
+        if (FreezeWindowDays <= 0 || WorkingDays.Count == 0)
+        {
+            return null;
+        }
+
+        var day = now.Date;
+        for (var counted = 0; counted < FreezeWindowDays;)
+        {
+            day = day.AddDays(1);
+            if (WorkingDays.Contains((int)day.DayOfWeek))
+            {
+                counted++;
+            }
+        }
+
+        return day.AddDays(1); // the end of that working day
+    }
+
     public static async Task<WorkCalendarSettings> LoadAsync(AppDbContext db, CancellationToken ct = default)
     {
         var settings = await db.Settings.AsNoTracking().ToDictionaryAsync(s => s.Key, s => s.Value, ct);
@@ -37,6 +60,7 @@ public sealed record WorkCalendarSettings(
             int.Parse(settings.GetValueOrDefault("ShiftStartHour", "6")),
             int.Parse(settings.GetValueOrDefault("ShiftEndHour", "18")),
             workingDays,
-            breaks);
+            breaks,
+            int.TryParse(settings.GetValueOrDefault("FreezeWindowDays", "0"), out var freezeDays) ? freezeDays : 0);
     }
 }

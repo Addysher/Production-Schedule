@@ -8,12 +8,13 @@ public record ScheduleItemDto(
     DateOnly ScheduleDate, DateTime PlannedStart, DateTime PlannedEnd, decimal PlannedEqA, int MembersTotal,
     DateTime? ActualStart, DateTime? ActualEnd, decimal EqaCompleted, int MembersCompleted,
     bool CreepDetected, DateTime? CreepApprovedAt, string JobStatus,
-    List<ScheduleSegmentDto> Segments);
+    List<ScheduleSegmentDto> Segments, bool IsFrozen);
 
 public record BreakDto(string Start, string End);
 
 // What the Calendar screen needs to draw a working day. Readable by every role, unlike /api/settings.
-public record CalendarSettingsDto(int ShiftStartHour, int ShiftEndHour, List<int> WorkingDays, List<BreakDto> Breaks);
+// FreezeUntil: end of the freeze window (NULL = off) — nothing starting before it can be moved or dropped.
+public record CalendarSettingsDto(int ShiftStartHour, int ShiftEndHour, List<int> WorkingDays, List<BreakDto> Breaks, DateTime? FreezeUntil);
 
 public record ProductionRowDto(int StationId, string StationName, DateOnly Date, decimal Eqa);
 

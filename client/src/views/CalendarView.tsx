@@ -7,7 +7,7 @@ import { useAuth } from '../auth/AuthContext'
 import { isMovableStatus } from '../auth/permissions'
 import type { CalendarSettingsDto, JobDetailDto, JobSummaryDto, ScheduleItemDto, ScheduleSegmentDto, StationDto } from '../types/api'
 import { localIsoDate } from '../utils/dates'
-import { CalendarBlock } from '../components/CalendarBlock'
+import { CalendarBlock, LockIcon } from '../components/CalendarBlock'
 import { JobDetailPopup } from '../components/JobDetailPopup'
 import { CollapsibleSidePanel } from '../components/CollapsibleSidePanel'
 import { StationModal } from '../components/StationModal'
@@ -15,7 +15,10 @@ import { ScheduleManuallyModal } from '../components/ScheduleManuallyModal'
 
 const ROW_HEIGHT = 52
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour: 18, workingDays: [1, 2, 3, 4, 5], breaks: [] }
+const DEFAULT_CALENDAR: CalendarSettingsDto = { shiftStartHour: 6, shiftEndHour: 18, workingDays: [1, 2, 3, 4, 5], breaks: [], freezeUntil: null }
+
+// Hatching for days inside the freeze window.
+const FROZEN_BG = 'repeating-linear-gradient(135deg, transparent, transparent 7px, var(--divider-faint) 7px, var(--divider-faint) 9px)'
 const NOW_LINE_REFRESH_MS = 15 * 60 * 1000 // §request: the "now" line updates on a 15-minute interval
 
 const hoursOf = (hhmm: string) => {
@@ -151,15 +154,30 @@ export function CalendarView() {
 
   const queuedUnscheduled = jobs.filter((j) => j.status === 'ready' && !j.stationId)
   const creepAlerts = items.filter((i) => i.creepDetected && !i.creepApprovedAt)
-  const canPin = (job: JobDetailDto) => !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType
-  const canDrag = (item: ScheduleItemDto) => !!user?.canReschedule && isMovableStatus(item.jobStatus)
+  const canPin = (job: JobDetailDto) => !!user?.canReschedule && isMovableStatus(job.status) && !!job.componentType && !job.isFrozen
+  const canDrag = (item: ScheduleItemDto) => !!user?.canReschedule && isMovableStatus(item.jobStatus) && !item.isFrozen
+
+  // Freeze window: today through the end of the window can't take moves in or out.
+  const freezeUntil = calendar.freezeUntil ? new Date(calendar.freezeUntil) : null
+  const lastFrozenDay = freezeUntil ? new Date(freezeUntil.getTime() - 86400000) : null
+  const isFrozenDay = (d: Date) => {
+    if (!freezeUntil) return false
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    return dayStart >= todayStart && dayStart < freezeUntil
+  }
 
   async function recalculate() {
     setRecalculating(true)
     try {
       const result = await scheduleApi.generate()
       await refresh()
-      window.alert(`Recalculated: ${result.jobsScheduled} job(s) scheduled${result.jobsSkipped ? `, ${result.jobsSkipped} skipped (no matching station/capacity)` : ''}.`)
+      window.alert(
+        `Recalculated: ${result.jobsScheduled} job(s) scheduled` +
+          (result.jobsFrozen ? `, ${result.jobsFrozen} frozen in place` : '') +
+          (result.jobsSkipped ? `, ${result.jobsSkipped} skipped (no matching station/capacity)` : '') +
+          '.',
+      )
     } catch (e) {
       window.alert('Recalculate failed — see the console for details.')
       console.error(e)
@@ -202,6 +220,10 @@ export function CalendarView() {
   }
 
   async function moveJob(payload: DragPayload, station: StationDto, date: Date) {
+    if (freezeUntil && lastFrozenDay && new Date(date.getFullYear(), date.getMonth(), date.getDate()) < freezeUntil) {
+      setDragError(`${date.toDateString()} is inside the freeze window (through ${lastFrozenDay.toDateString()}) — drop it on a later day.`)
+      return
+    }
     if (payload.componentType !== station.componentType) {
       setDragError(`'${station.name}' handles '${station.componentType}', but ${payload.jobRef} is '${payload.componentType ?? 'unknown'}'.`)
       return
@@ -274,6 +296,12 @@ export function CalendarView() {
             </div>
           </div>
 
+          {lastFrozenDay && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              <LockIcon size={12} /> Frozen through {lastFrozenDay.toDateString()} — jobs starting before then can&rsquo;t be moved, and nothing can be dropped there (Settings → FreezeWindowDays).
+            </div>
+          )}
+
           {dragError && (
             <div className="card" style={{ marginBottom: 12, borderLeft: '3px solid #ef4444', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: '#9f1239' }}>{dragError}</span>
@@ -308,11 +336,14 @@ export function CalendarView() {
                         borderBottom: '1px solid var(--divider-faint)',
                         borderRight: '1px solid var(--divider-faint)',
                         opacity: inMonth ? 1 : 0.4,
-                        background: sameDay(d, new Date()) ? 'var(--sidebar-nav-active-bg)' : undefined,
+                        background: sameDay(d, new Date()) ? 'var(--sidebar-nav-active-bg)' : isFrozenDay(d) ? FROZEN_BG : undefined,
                         ...dropZone(`m-${d.toISOString()}`).style,
                       }}
                     >
-                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: inMonth ? undefined : 'var(--text-faint)' }}>{d.getDate()}</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: inMonth ? undefined : 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {d.getDate()}
+                        {isFrozenDay(d) && <LockIcon size={10} />}
+                      </div>
                       {shown.map(({ item, segment }, idx) => (
                         <div
                           key={`${item.id}-${idx}`}
@@ -345,6 +376,11 @@ export function CalendarView() {
                     : weekDays.map((d) => (
                         <div key={d.toISOString()} style={{ height: 90, width: 90, fontSize: 11, color: 'var(--text-faint)', padding: '4px 8px', borderBottom: '1px solid var(--divider-faint)' }}>
                           {DAY_NAMES[d.getDay()]} {d.getDate()}
+                          {isFrozenDay(d) && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 4 }}>
+                              <LockIcon size={10} /> frozen
+                            </div>
+                          )}
                         </div>
                       ))}
                 </div>
@@ -359,7 +395,12 @@ export function CalendarView() {
 
                     {mode === 'day' ? (
                       <div
-                        style={{ position: 'relative', height: hours.length * ROW_HEIGHT, ...dropZone(`d-${station.id}`).style }}
+                        style={{
+                          position: 'relative',
+                          height: hours.length * ROW_HEIGHT,
+                          background: isFrozenDay(anchorDate) ? FROZEN_BG : undefined,
+                          ...dropZone(`d-${station.id}`).style,
+                        }}
                         onDragOver={dropZone(`d-${station.id}`).onDragOver}
                         onDrop={(e) => onDropOnStationDay(e, station, anchorDate)}
                       >
@@ -424,7 +465,14 @@ export function CalendarView() {
                         {weekDays.map((d) => (
                           <div
                             key={d.toISOString()}
-                            style={{ height: 90, borderBottom: '1px solid var(--divider-faint)', padding: 2, overflow: 'auto', ...dropZone(`w-${station.id}-${d.toISOString()}`).style }}
+                            style={{
+                              height: 90,
+                              borderBottom: '1px solid var(--divider-faint)',
+                              padding: 2,
+                              overflow: 'auto',
+                              background: isFrozenDay(d) ? FROZEN_BG : undefined,
+                              ...dropZone(`w-${station.id}-${d.toISOString()}`).style,
+                            }}
                             data-drop={`w-${station.id}-${localIsoDate(d)}`}
                             onDragOver={dropZone(`w-${station.id}-${d.toISOString()}`).onDragOver}
                             onDrop={(e) => onDropOnStationDay(e, station, d)}

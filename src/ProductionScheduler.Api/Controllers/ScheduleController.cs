@@ -32,7 +32,8 @@ public class ScheduleController : ControllerBase
             .AsNoTracking()
             .ToListAsync();
 
-        return items.Select(ToDto).ToList();
+        var frozen = await FreezeWindow.FrozenJobRefsAsync(_db);
+        return items.Select(si => ToDto(si, frozen.Contains(si.JobRef) && si.ActualStart == null)).ToList();
     }
 
     // Readable by every role: the Calendar (Viewer-visible) needs the working window and breaks, but /api/settings is Admin-only.
@@ -44,7 +45,8 @@ public class ScheduleController : ControllerBase
             calendar.ShiftStartHour,
             calendar.ShiftEndHour,
             calendar.WorkingDays.OrderBy(d => d).ToList(),
-            calendar.Breaks.Select(b => new BreakDto(b.Start.ToString(@"hh\:mm"), b.End.ToString(@"hh\:mm"))).ToList());
+            calendar.Breaks.Select(b => new BreakDto(b.Start.ToString(@"hh\:mm"), b.End.ToString(@"hh\:mm"))).ToList(),
+            calendar.FreezeUntil(Domain.SiteClock.Now));
     }
 
     [HttpPost("generate")]
@@ -101,7 +103,7 @@ public class ScheduleController : ControllerBase
         return File(bytes, "text/csv", "schedule-export.csv");
     }
 
-    private static ScheduleItemDto ToDto(Domain.Entities.ScheduleItem si) => new(
+    private static ScheduleItemDto ToDto(Domain.Entities.ScheduleItem si, bool isFrozen) => new(
         si.Id, si.JobRef, si.Job.ClientName, si.StationId, si.Station.Name, si.Job.ComponentType,
         si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA, si.MembersTotal,
         si.ActualStart, si.ActualEnd, si.EqaCompleted, si.MembersCompleted,
@@ -109,7 +111,8 @@ public class ScheduleController : ControllerBase
         // Plans made before segments existed have none: treat the whole plan as one stretch on its start day.
         si.Segments.Count > 0
             ? si.Segments.OrderBy(s => s.SegmentStart).Select(s => new ScheduleSegmentDto(s.SegmentDate, s.SegmentStart, s.SegmentEnd, s.PlannedEqA)).ToList()
-            : new List<ScheduleSegmentDto> { new(si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA) });
+            : new List<ScheduleSegmentDto> { new(si.ScheduleDate, si.PlannedStart, si.PlannedEnd, si.PlannedEqA) },
+        isFrozen);
 
     private static string CsvEscape(string? value)
     {

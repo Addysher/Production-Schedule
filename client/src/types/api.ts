@@ -106,6 +106,7 @@ export interface JobSummaryDto {
   // sense. See JobStatusService.IsAtRisk / IsBehindSchedule.
   isAtRisk: boolean
   isBehindSchedule: boolean
+  isFrozen: boolean
 }
 
 export interface JobDetailDto {
@@ -136,6 +137,7 @@ export interface JobDetailDto {
   manualStationId: number | null
   manualScheduleDate: string | null
   schComponentType: string | null
+  isFrozen: boolean
 }
 
 export interface UpdateJobRequest {
@@ -171,6 +173,7 @@ export interface ScheduleGenerationResult {
   jobsScheduled: number
   scheduleItemsWritten: number
   jobsSkipped: number
+  jobsFrozen: number
 }
 
 export interface UpdateJobResponse {
@@ -205,6 +208,7 @@ export interface ScheduleItemDto {
   creepApprovedAt: string | null
   jobStatus: JobStatus
   segments: ScheduleSegmentDto[]
+  isFrozen: boolean
 }
 
 export interface QuoteLineRequest {
@@ -240,6 +244,7 @@ export interface CalendarSettingsDto {
   shiftEndHour: number
   workingDays: number[]
   breaks: BreakDto[]
+  freezeUntil: string | null // end of the freeze window; null = off
 }
 
 export interface ProductionRowDto {

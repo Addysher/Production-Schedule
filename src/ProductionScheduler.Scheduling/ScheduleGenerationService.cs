@@ -8,7 +8,8 @@ using ProductionScheduler.Scheduling.Engine;
 namespace ProductionScheduler.Scheduling;
 
 // JobsSkipped = queued jobs with no active station to run on (left unassigned rather than aborting the run).
-public record ScheduleGenerationResult(int JobsScheduled, int ScheduleItemsWritten, int JobsSkipped = 0);
+// JobsFrozen = jobs left exactly where they were because they start inside the freeze window.
+public record ScheduleGenerationResult(int JobsScheduled, int ScheduleItemsWritten, int JobsSkipped = 0, int JobsFrozen = 0);
 
 public interface IScheduleGenerationService
 {
@@ -104,6 +105,15 @@ public class ScheduleGenerationService : IScheduleGenerationService
             : null;
 
         var generatedAt = SiteClock.Now;
+
+        // Freeze window: not-started jobs already planned to start inside it keep their slot (on a station
+        // that is still active and still makes their product) and are left out of re-planning entirely.
+        var frozenPlans = (await FreezeWindow.FrozenPlansAsync(_db, calendar.FreezeUntil(generatedAt), ct))
+            .Where(kv => queued.Any(j => j.JobRef == kv.Key
+                && stations.Any(s => s.Id == kv.Value[0].StationId && s.ComponentType == j.ComponentType)))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        queued = queued.Where(j => !frozenPlans.ContainsKey(j.JobRef)).ToList();
+
         var windowStart = WorkingCalendar.AdvanceToWorkingWindow(generatedAt, shiftStartHour, shiftEndHour, workingDays, breaks);
         var usedEqaByStation = stations.ToDictionary(s => s.Id, _ => new Dictionary<DateOnly, double>());
         var busyUntil = stations.ToDictionary(s => s.Id, _ => windowStart);
@@ -140,6 +150,23 @@ public class ScheduleGenerationService : IScheduleGenerationService
             }
 
             busyUntil[stationId] = projectedEnd;
+        }
+
+        // --- Frozen work: keeps its slot; everything else on the station goes after it. ---
+        foreach (var items in frozenPlans.Values)
+        {
+            var stationId = items[0].StationId;
+            var end = items.Max(i => i.PlannedEnd);
+            if (end > busyUntil[stationId])
+            {
+                busyUntil[stationId] = end;
+            }
+
+            var used = usedEqaByStation[stationId];
+            foreach (var segment in items.SelectMany(i => i.Segments))
+            {
+                used[segment.SegmentDate] = used.GetValueOrDefault(segment.SegmentDate) + (double)segment.PlannedEqA;
+            }
         }
 
         // --- Queued work: route what can be routed, skip (and report) what cannot. ---
@@ -302,6 +329,6 @@ public class ScheduleGenerationService : IScheduleGenerationService
         }
 
         await _db.SaveChangesAsync(ct);
-        return new ScheduleGenerationResult(routable.Count, scheduleItemsWritten, skipped);
+        return new ScheduleGenerationResult(routable.Count, scheduleItemsWritten, skipped, frozenPlans.Count);
     }
 }

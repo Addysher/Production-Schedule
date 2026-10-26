@@ -80,7 +80,10 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
         // Continuous 24h, 7-day calendar: wall-clock durations make every scenario's expected
         // timings independent of when the suite happens to run (nights, weekends).
-        await SetSettingsAsync(("ShiftStartHour", "0"), ("ShiftEndHour", "24"), ("WorkingDays", "0,1,2,3,4,5,6"), ("SchFileSettleSeconds", "0"));
+        // The freeze window is off by default here so scheduling scenarios can move near-term work;
+        // FreezeWindowTests turns it on for its own checks.
+        await SetSettingsAsync(("ShiftStartHour", "0"), ("ShiftEndHour", "24"), ("WorkingDays", "0,1,2,3,4,5,6"), ("SchFileSettleSeconds", "0"),
+            ("FreezeWindowDays", "0"));
     }
 
     public async Task DisposeAsync()
