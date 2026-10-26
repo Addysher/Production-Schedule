@@ -35,7 +35,7 @@ public class JobsController : ControllerBase
             j.TotalEqA, j.CompletedEqA, j.EstimatedStartDate, j.EstimatedCompletionDate,
             j.ExpectedDeliveryDate, j.EstBookedDeliveryDate, j.BookedDeliveryDate,
             j.InvoiceNumber, j.Delivered, j.Status, isLate, j.DesignStatus,
-            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate);
+            j.AssignedStationId, j.IsManuallyScheduled, j.ManualStationId, j.ManualScheduleDate, j.SchComponentType);
     }
 
     [HttpGet]
@@ -86,6 +86,11 @@ public class JobsController : ControllerBase
             return Conflict($"Job '{request.JobRef}' already exists.");
         }
 
+        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        {
+            return BadRequest(unknown);
+        }
+
         var now = SiteClock.Now;
         var job = new Job
         {
@@ -122,6 +127,11 @@ public class JobsController : ControllerBase
             return NotFound();
         }
 
+        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        {
+            return BadRequest(unknown);
+        }
+
         // Manually entered fields are never clobbered by re-import (§4.4) — here they're the
         // fields the edit modal is allowed to touch at all.
         job.ComponentType = request.ComponentType ?? job.ComponentType;
@@ -155,6 +165,9 @@ public class JobsController : ControllerBase
         {
             return NotFound();
         }
+
+        // v3.0: a deleted job's MPS is archived rather than left behind in a pool or a station's DataIn.
+        await MpsFiles.ArchiveForDeletedJobAsync(_db, job);
 
         _db.Jobs.Remove(job);
         await _db.SaveChangesAsync();

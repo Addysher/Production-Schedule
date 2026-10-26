@@ -1,8 +1,8 @@
 namespace ProductionScheduler.Api.Dtos;
 
-public record SchImportPathDto(int Id, string Name, string UncPath, string? ComponentType, bool IsActive);
+public record ProductDto(int Id, string Name, string? PoolPath, string? ArchivePath, bool IsActive);
 
-public record UpsertSchImportPathRequest(string Name, string UncPath, string? ComponentType, bool IsActive);
+public record UpsertProductRequest(string Name, string? PoolPath, string? ArchivePath, bool IsActive);
 
 public record BatchcutWatchPathDto(int Id, string Name, string UncPath, bool IsActive);
 

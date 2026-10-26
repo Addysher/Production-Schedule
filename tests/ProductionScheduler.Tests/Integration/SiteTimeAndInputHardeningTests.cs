@@ -121,7 +121,7 @@ public class SiteTimeAndInputHardeningTests
         var inbox = _f.NewDir("hardinbox");
         await _f.WithDbAsync(async db =>
         {
-            db.SchImportPaths.Add(new SchImportPath { Name = "hardening " + Path.GetFileName(inbox), UncPath = inbox, IsActive = true });
+            db.Products.Add(new Product { Name = "hardening " + Path.GetFileName(inbox), PoolPath = inbox, IsActive = true });
             await db.SaveChangesAsync();
         });
         return inbox;

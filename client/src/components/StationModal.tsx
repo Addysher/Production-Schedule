@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { stationsApi } from '../api/stations'
 import type { CapacityOverrideDto, StationDto } from '../types/api'
 import { Field, Modal, errorText } from './Modal'
+import { ProductSelect } from './ProductSelect'
 
 // Create or edit a station. Editing also manages its per-day capacity overrides (§3.4 / §5.15).
 export function StationModal({ station, onClose, onSaved }: { station?: StationDto; onClose: () => void; onSaved: () => void }) {
@@ -28,7 +29,7 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
   }, [station?.id])
 
   async function save() {
-    if (!form.name.trim() || !form.componentType.trim()) return setError('Name and component type are required.')
+    if (!form.name.trim() || !form.componentType.trim()) return setError('Name and product are required.')
     setSaving(true)
     setError(null)
     const body = {
@@ -89,8 +90,8 @@ export function StationModal({ station, onClose, onSaved }: { station?: StationD
         <Field label="Name">
           <input style={{ width: '100%' }} value={form.name} onChange={(e) => set({ name: e.target.value })} autoFocus />
         </Field>
-        <Field label="Component type" hint="Must match the SCH ComponentType exactly">
-          <input style={{ width: '100%' }} value={form.componentType} onChange={(e) => set({ componentType: e.target.value })} placeholder="e.g. WallFrames" />
+        <Field label="Product" hint="Jobs of this product can run here (Settings → Products)">
+          <ProductSelect value={form.componentType} onChange={(componentType) => set({ componentType })} />
         </Field>
         <div style={{ gridColumn: '1 / -1' }}>
           <Field label="PRD folder (UNC path)" hint="Where PaperlessJig writes this station's daily .prd files; also where MPS files are staged">

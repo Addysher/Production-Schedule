@@ -68,7 +68,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
                      {
                          "ScheduleItems", "JobMembers", "Precedences", "BatchcutEvents", "MaintenanceLogs", "PrdReadState",
                          "StationCapacityOverrides", "Jobs", "Operators", "ShiftBreaks", "Shifts", "SetupTimes",
-                         "BatchcutWatchPaths", "SchImportPaths", "JobTypes", "Stations", "Settings", "Users",
+                         "BatchcutWatchPaths", "Products", "JobTypes", "Stations", "Settings", "Users",
                      })
             {
                 await db.Database.ExecuteSqlRawAsync($"DELETE FROM [{table}]");
@@ -158,5 +158,6 @@ public sealed class IntegrationFixture : IAsyncLifetime
     public Task PollMmeAsync() => new MmeFileWatcherService(ScopeFactory, NullLogger<MmeFileWatcherService>.Instance).PollAsync(default);
     public Task PollBatchcutAsync() => new BatchcutWatcherService(ScopeFactory, NullLogger<BatchcutWatcherService>.Instance).PollAsync(default);
     public Task PollPrdAsync() => new PrdReaderService(ScopeFactory, NullLogger<PrdReaderService>.Instance).PollAsync(default);
+    public Task PollMpsAsync() => new MpsFileService(ScopeFactory, NullLogger<MpsFileService>.Instance).PollAsync(default);
     public Task RunNightlyAsync() => new NightlyMaintenanceService(ScopeFactory, NullLogger<NightlyMaintenanceService>.Instance).RunAllTasksAsync(default);
 }

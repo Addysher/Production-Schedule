@@ -203,7 +203,7 @@ export function JobsView() {
         <CollapsibleSidePanel viewKey="jobs" title="Filters">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <label>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Component Type</div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Product</div>
               <select style={{ width: '100%' }} value={componentFilter} onChange={(e) => setComponentFilter(e.target.value)}>
                 <option value="">All</option>
                 {componentTypes.map((c) => (

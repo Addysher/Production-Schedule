@@ -55,7 +55,8 @@ export function JobDetailPopup({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Job Reference" value={job.jobRef} />
           <Field label="Job Structure Name" value={job.jobRef} />
-          <Field label="Component Type" value={job.componentType} />
+          <Field label="Product" value={job.componentType} />
+          <Field label="SCH component type" value={job.schComponentType} />
           <Field label="Client Name" value={job.clientName} />
           <Field label="Site Address" value={job.siteAddress} />
           <Field label="Site Suburb" value={job.siteSuburb} />

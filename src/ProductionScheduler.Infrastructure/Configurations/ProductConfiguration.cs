@@ -4,14 +4,15 @@ using ProductionScheduler.Domain.Entities;
 
 namespace ProductionScheduler.Infrastructure.Configurations;
 
-public class SchImportPathConfiguration : IEntityTypeConfiguration<SchImportPath>
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
 {
-    public void Configure(EntityTypeBuilder<SchImportPath> b)
+    public void Configure(EntityTypeBuilder<Product> b)
     {
-        b.ToTable("SchImportPaths");
+        b.ToTable("Products");
         b.HasKey(x => x.Id);
         b.Property(x => x.Name).HasMaxLength(100).IsRequired();
-        b.Property(x => x.UncPath).HasMaxLength(500).IsRequired();
-        b.Property(x => x.ComponentType).HasMaxLength(100);
+        b.HasIndex(x => x.Name).IsUnique();
+        b.Property(x => x.PoolPath).HasMaxLength(500);
+        b.Property(x => x.ArchivePath).HasMaxLength(500);
     }
 }

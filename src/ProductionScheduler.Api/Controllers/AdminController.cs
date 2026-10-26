@@ -19,61 +19,6 @@ public class AdminController : ControllerBase
         _db = db;
     }
 
-    // --- SCH import paths (§5.16) ---
-
-    [HttpGet("sch-import-paths")]
-    public async Task<ActionResult<List<SchImportPathDto>>> GetSchImportPaths()
-    {
-        var paths = await _db.SchImportPaths.AsNoTracking().OrderBy(p => p.Name).ToListAsync();
-        return paths.Select(p => new SchImportPathDto(p.Id, p.Name, p.UncPath, p.ComponentType, p.IsActive)).ToList();
-    }
-
-    [HttpPost("sch-import-paths")]
-    public async Task<ActionResult<SchImportPathDto>> CreateSchImportPath(UpsertSchImportPathRequest request)
-    {
-        var path = new SchImportPath
-        {
-            Name = request.Name,
-            UncPath = request.UncPath,
-            ComponentType = request.ComponentType,
-            IsActive = request.IsActive
-        };
-        _db.SchImportPaths.Add(path);
-        await _db.SaveChangesAsync();
-        return new SchImportPathDto(path.Id, path.Name, path.UncPath, path.ComponentType, path.IsActive);
-    }
-
-    [HttpPut("sch-import-paths/{id:int}")]
-    public async Task<ActionResult<SchImportPathDto>> UpdateSchImportPath(int id, UpsertSchImportPathRequest request)
-    {
-        var path = await _db.SchImportPaths.FindAsync(id);
-        if (path is null)
-        {
-            return NotFound();
-        }
-
-        path.Name = request.Name;
-        path.UncPath = request.UncPath;
-        path.ComponentType = request.ComponentType;
-        path.IsActive = request.IsActive;
-        await _db.SaveChangesAsync();
-        return new SchImportPathDto(path.Id, path.Name, path.UncPath, path.ComponentType, path.IsActive);
-    }
-
-    [HttpDelete("sch-import-paths/{id:int}")]
-    public async Task<IActionResult> DeleteSchImportPath(int id)
-    {
-        var path = await _db.SchImportPaths.FindAsync(id);
-        if (path is null)
-        {
-            return NotFound();
-        }
-
-        _db.SchImportPaths.Remove(path);
-        await _db.SaveChangesAsync();
-        return NoContent();
-    }
-
     // --- Batchcut watch paths (§5.12) ---
 
     [HttpGet("batchcut-watch-paths")]

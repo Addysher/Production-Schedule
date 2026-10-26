@@ -65,7 +65,7 @@ export function ScheduleManuallyModal({ job, onClose, onDone }: { job: JobDetail
       )}
       {stations.length === 0 ? (
         <div style={{ fontSize: 13, color: '#b45309' }}>
-          There is no active station for component type &lsquo;{job.componentType}&rsquo;, so this job can&rsquo;t be pinned.
+          There is no active station for the product &lsquo;{job.componentType}&rsquo;, so this job can&rsquo;t be pinned.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

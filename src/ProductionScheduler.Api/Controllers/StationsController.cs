@@ -42,6 +42,11 @@ public class StationsController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<StationDto>> Create(CreateStationRequest request)
     {
+        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        {
+            return BadRequest(unknown);
+        }
+
         var station = new Station
         {
             Name = request.Name,
@@ -65,6 +70,11 @@ public class StationsController : ControllerBase
         if (station is null)
         {
             return NotFound();
+        }
+
+        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        {
+            return BadRequest(unknown);
         }
 
         station.Name = request.Name;

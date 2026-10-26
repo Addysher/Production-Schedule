@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { jobTypesApi } from '../api/admin'
 import type { JobTypeDto } from '../types/api'
 import { Field, Modal, errorText } from './Modal'
+import { ProductSelect } from './ProductSelect'
 
 export function JobTypeModal({ jobType, onClose, onSaved }: { jobType?: JobTypeDto; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(jobType?.name ?? '')
@@ -46,8 +47,8 @@ export function JobTypeModal({ jobType, onClose, onSaved }: { jobType?: JobTypeD
         <Field label="Name">
           <input style={{ width: '100%' }} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
-        <Field label="Component type" hint="Ties the job type to the stations (and the SCH files) of that type">
-          <input style={{ width: '100%' }} value={componentType} onChange={(e) => setComponentType(e.target.value)} />
+        <Field label="Product" hint="Sets the cycle time for this product's jobs on the schedule">
+          <ProductSelect value={componentType} onChange={setComponentType} allowNone />
         </Field>
         <Field label="Minutes per unit" hint="Cycle time per EqA — drives job durations in both the schedule and the Quote Estimator">
           <input type="number" step="0.1" style={{ width: '100%' }} value={minsPerUnit} onChange={(e) => setMinsPerUnit(e.target.value)} />

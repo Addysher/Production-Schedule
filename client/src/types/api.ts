@@ -69,11 +69,12 @@ export interface SettingDto {
   updatedAt: string
 }
 
-export interface SchImportPathDto {
+// What the factory makes. Its name is what stations, job types and jobs call 'componentType'.
+export interface ProductDto {
   id: number
   name: string
-  uncPath: string
-  componentType: string | null
+  poolPath: string | null
+  archivePath: string | null
   isActive: boolean
 }
 
@@ -134,6 +135,7 @@ export interface JobDetailDto {
   isManuallyScheduled: boolean
   manualStationId: number | null
   manualScheduleDate: string | null
+  schComponentType: string | null
 }
 
 export interface UpdateJobRequest {

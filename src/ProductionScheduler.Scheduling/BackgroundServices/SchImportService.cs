@@ -9,14 +9,13 @@ using ProductionScheduler.Domain.Entities;
 
 namespace ProductionScheduler.Scheduling.BackgroundServices;
 
-// §5.8 — watches one or more configured SchImportPaths for new .sch files (semicolon-delimited,
+// §5.8 — watches every active Product's pool folder for new .sch files (semicolon-delimited,
 // dd/mm/yyyy dates) and runs the two-stage quote / finaldesign import workflow.
 //
-// The doc never says a processed .sch file is moved or deleted immediately (deletion only happens
-// via Nightly Task 3, on job completion — §5.13) — so left in place, the same file would be
-// reprocessed on every poll forever. To make polling idempotent, this service moves each file it
-// handles into a "_processed" or "_errors" subfolder of its import path once done, and records the
-// final path as Jobs.SchSourcePath so Task 3 still deletes the right file later.
+// v3.0: the pool a file is dropped into decides the job's product, not the file's own component
+// type (which is kept as Jobs.SchComponentType). Once read, the file is archived into the product's
+// archive folder (or a "_processed" subfolder of the pool if none is set) and kept; a rejected file
+// goes to the pool's "_errors" subfolder. Either way it is never read twice.
 public class SchImportService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -50,18 +49,18 @@ public class SchImportService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var importPaths = await db.SchImportPaths.AsNoTracking().Where(p => p.IsActive).ToListAsync(ct);
+        var products = await db.Products.AsNoTracking().Where(p => p.IsActive && p.PoolPath != null && p.PoolPath != "").ToListAsync(ct);
         var settleSeconds = await SettingsReader.GetIntAsync(db, "SchFileSettleSeconds", 5, ct);
         var anyImported = false;
 
-        foreach (var importPath in importPaths)
+        foreach (var product in products)
         {
-            if (!Directory.Exists(importPath.UncPath))
+            if (!Directory.Exists(product.PoolPath))
             {
                 continue;
             }
 
-            foreach (var file in Directory.GetFiles(importPath.UncPath, "*.sch"))
+            foreach (var file in Directory.GetFiles(product.PoolPath!, "*.sch"))
             {
                 // Sapphire may still be writing the file; reading half of it would be rejected as malformed.
                 if (!IsSettled(file, settleSeconds))
@@ -69,7 +68,7 @@ public class SchImportService : BackgroundService
                     continue;
                 }
 
-                if (await ProcessFileAsync(db, importPath, file, ct))
+                if (await ProcessFileAsync(db, product, file, ct))
                 {
                     anyImported = true;
                 }
@@ -104,7 +103,7 @@ public class SchImportService : BackgroundService
         }
     }
 
-    private async Task<bool> ProcessFileAsync(AppDbContext db, SchImportPath importPath, string filePath, CancellationToken ct)
+    private async Task<bool> ProcessFileAsync(AppDbContext db, Product product, string filePath, CancellationToken ct)
     {
         var lines = await File.ReadAllLinesAsync(filePath, ct);
         var parsed = ParseFile(lines);
@@ -113,18 +112,11 @@ public class SchImportService : BackgroundService
         {
             var shown = string.Join("; ", parsed.Problems.Take(4));
             var more = parsed.Problems.Count > 4 ? $" (+{parsed.Problems.Count - 4} more)" : "";
-            await RejectAsync(db, importPath, filePath, parsed.ScheduleJob?.JobRef, $"File rejected, nothing imported — {shown}{more}", ct);
+            await RejectAsync(db, product, filePath, parsed.ScheduleJob?.JobRef, $"File rejected, nothing imported — {shown}{more}", ct);
             return false;
         }
 
         var job = parsed.ScheduleJob;
-
-        if (importPath.ComponentType is not null && !string.Equals(importPath.ComponentType, job.ComponentType, StringComparison.OrdinalIgnoreCase))
-        {
-            await RejectAsync(db, importPath, filePath, job.JobRef,
-                $"Component type '{job.ComponentType}' does not match import path '{importPath.Name}', which only accepts '{importPath.ComponentType}' (wrong folder?)", ct);
-            return false;
-        }
 
         var existing = await db.Jobs.FirstOrDefaultAsync(j => j.JobRef == job.JobRef, ct);
         var isFinalDesign = string.Equals(job.DesignStatus, "FinalDesign", StringComparison.OrdinalIgnoreCase);
@@ -133,63 +125,64 @@ public class SchImportService : BackgroundService
         {
             if (existing is not null)
             {
-                await RejectAsync(db, importPath, filePath, job.JobRef, "A quote for this job was already imported", ct);
+                await RejectAsync(db, product, filePath, job.JobRef, "A quote for this job was already imported", ct);
                 return false;
             }
 
-            await CreateJobAsync(db, job, parsed.ScheduleEntries, filePath, ct);
+            await CreateJobAsync(db, product, job, parsed.ScheduleEntries, filePath, ct);
         }
         else if (existing is null)
         {
             // finaldesign arriving with no prior quote — treated as a brand new job, all fields set.
-            await CreateJobAsync(db, job, parsed.ScheduleEntries, filePath, ct);
+            await CreateJobAsync(db, product, job, parsed.ScheduleEntries, filePath, ct);
         }
         else
         {
-            await UpdateJobAsync(db, existing, job, parsed.ScheduleEntries, filePath, ct);
+            await UpdateJobAsync(db, existing, product, job, parsed.ScheduleEntries, filePath, ct);
         }
 
         await db.SaveChangesAsync(ct);
-        var processedPath = MoveTo(filePath, importPath.UncPath, "_processed");
 
-        // Nightly Task 3 deletes whatever SchSourcePath names, so it must be the file's final
-        // location — not the inbox path it has just left.
+        // v3.0: the SCH file is read in, then archived (kept) in the product's archive folder.
+        var archivedPath = string.IsNullOrWhiteSpace(product.ArchivePath)
+            ? MoveTo(filePath, Path.Combine(product.PoolPath!, "_processed"))
+            : MoveTo(filePath, product.ArchivePath);
         await db.Jobs.Where(j => j.JobRef == job.JobRef)
-            .ExecuteUpdateAsync(s => s.SetProperty(j => j.SchSourcePath, processedPath), ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(j => j.SchSourcePath, archivedPath), ct);
 
+        // The pool decides the product; if the file itself says something different, note it so a
+        // file dropped in the wrong pool can be spotted.
+        var mismatch = SameProduct(job.ComponentType, product.Name) ? "" : $" (the file says '{job.ComponentType}')";
         MaintenanceLogWriter.Add(db, "SchImport", "success",
-            $"Imported {job.DesignStatus} — {parsed.ScheduleEntries.Count} members, {parsed.ScheduleEntries.Sum(e => e.EqaValue)} EqA",
-            job.JobRef, processedPath);
+            $"Imported {job.DesignStatus} as {product.Name}{mismatch} — {parsed.ScheduleEntries.Count} members, {parsed.ScheduleEntries.Sum(e => e.EqaValue)} EqA",
+            job.JobRef, archivedPath);
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Imported SCH file {File} for job {JobRef} ({Stage}).", filePath, job.JobRef, job.DesignStatus);
         return true;
     }
 
-    private async Task RejectAsync(AppDbContext db, SchImportPath importPath, string filePath, string? jobRef, string reason, CancellationToken ct)
+    private async Task RejectAsync(AppDbContext db, Product product, string filePath, string? jobRef, string reason, CancellationToken ct)
     {
         _logger.LogError("SCH file {File} rejected: {Reason}", filePath, reason);
-        var errorsPath = MoveTo(filePath, importPath.UncPath, "_errors");
+        var errorsPath = MoveTo(filePath, Path.Combine(product.PoolPath!, "_errors"));
         MaintenanceLogWriter.Add(db, "SchImport", "error", reason, jobRef, errorsPath);
         await db.SaveChangesAsync(ct);
     }
 
-    // MPS files are never described as arriving anywhere by the design doc — §5.13 Task 1 assumes
-    // Jobs.MpsSourcePath is already set, but nothing populates it. Sapphire drops MME files into
-    // RawFilesPath (§5.11), and MPS files are the same per-job MiTek export family, so this treats
-    // RawFilesPath as their source location too — the same inferred base Task 1's own template
-    // ("{MpsSourcePath}\{JobRef}__.MPS") expects.
-    private static async Task<string?> GetMpsSourcePathAsync(AppDbContext db, CancellationToken ct) =>
-        await SettingsReader.GetStringAsync(db, "RawFilesPath", "", ct) is { Length: > 0 } path ? path : null;
+    // "RoofTrusses" in the file vs a product named "Roof Trusses" is the same thing.
+    private static bool SameProduct(string? schComponentType, string productName) =>
+        string.Equals(schComponentType?.Replace(" ", ""), productName.Replace(" ", ""), StringComparison.OrdinalIgnoreCase);
 
     private static async Task CreateJobAsync(
-        AppDbContext db, ParsedScheduleJob job, List<ParsedScheduleEntry> entries, string filePath, CancellationToken ct)
+        AppDbContext db, Product product, ParsedScheduleJob job, List<ParsedScheduleEntry> entries, string filePath, CancellationToken ct)
     {
         var now = SiteClock.Now;
         var entity = new Job
         {
             JobRef = job.JobRef,
-            ComponentType = job.ComponentType,
+            ComponentType = product.Name,
+            SchComponentType = job.ComponentType,
             ClientName = job.ClientName,
             ExpectedDeliveryDate = job.ExpectedDeliveryDate,
             EstBookedDeliveryDate = job.EstBookedDeliveryDate,
@@ -204,7 +197,7 @@ public class SchImportService : BackgroundService
             DesignStatus = job.DesignStatus,
             Status = string.Equals(job.DesignStatus, "FinalDesign", StringComparison.OrdinalIgnoreCase) ? "ready" : "scheduled",
             SchSourcePath = filePath,
-            MpsSourcePath = await GetMpsSourcePathAsync(db, ct),
+            MpsSourcePath = product.PoolPath, // the MPS waits in the same pool folder as the SCH
             TotalEqA = entries.Sum(e => e.EqaValue),
             CreatedAt = now,
             UpdatedAt = now
@@ -221,11 +214,12 @@ public class SchImportService : BackgroundService
     }
 
     private static async Task UpdateJobAsync(
-        AppDbContext db, Job existing, ParsedScheduleJob job, List<ParsedScheduleEntry> entries, string filePath, CancellationToken ct)
+        AppDbContext db, Job existing, Product product, ParsedScheduleJob job, List<ParsedScheduleEntry> entries, string filePath, CancellationToken ct)
     {
         // JobOrderDate/Time and manually-entered fields (SupervisorName/Number, BookedDeliveryDate,
         // InvoiceNumber, Delivered) are never touched by a re-import (§4.4).
-        existing.ComponentType = job.ComponentType;
+        existing.ComponentType = product.Name;
+        existing.SchComponentType = job.ComponentType;
         existing.ClientName = job.ClientName;
         existing.ExpectedDeliveryDate = job.ExpectedDeliveryDate;
         existing.EstBookedDeliveryDate = job.EstBookedDeliveryDate;
@@ -238,7 +232,7 @@ public class SchImportService : BackgroundService
         existing.DesignStatus = job.DesignStatus;
         existing.Status = "ready";
         existing.SchSourcePath = filePath;
-        existing.MpsSourcePath ??= await GetMpsSourcePathAsync(db, ct);
+        existing.MpsSourcePath = product.PoolPath;
         existing.TotalEqA = entries.Sum(e => e.EqaValue);
         existing.UpdatedAt = SiteClock.Now;
 
@@ -287,9 +281,8 @@ public class SchImportService : BackgroundService
         Raw2 = entry.Raw2
     };
 
-    private static string MoveTo(string filePath, string importRoot, string subfolder)
+    private static string MoveTo(string filePath, string destDir)
     {
-        var destDir = Path.Combine(importRoot, subfolder);
         Directory.CreateDirectory(destDir);
         var destFile = Path.Combine(destDir, Path.GetFileName(filePath));
         if (File.Exists(destFile))

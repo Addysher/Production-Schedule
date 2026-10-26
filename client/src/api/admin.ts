@@ -5,7 +5,7 @@ import type {
   ShiftDto,
   UserDto,
   SettingDto,
-  SchImportPathDto,
+  ProductDto,
   BatchcutWatchPathDto,
 } from '../types/api'
 
@@ -53,13 +53,11 @@ export const settingsApi = {
     apiClient.put<SettingDto>(`/settings/${key}`, { value }).then((r) => r.data),
 }
 
-export const schImportPathsApi = {
-  getAll: () => apiClient.get<SchImportPathDto[]>('/admin/sch-import-paths').then((r) => r.data),
-  create: (dto: Omit<SchImportPathDto, 'id'>) =>
-    apiClient.post<SchImportPathDto>('/admin/sch-import-paths', dto).then((r) => r.data),
-  update: (id: number, dto: Omit<SchImportPathDto, 'id'>) =>
-    apiClient.put<SchImportPathDto>(`/admin/sch-import-paths/${id}`, dto).then((r) => r.data),
-  remove: (id: number) => apiClient.delete(`/admin/sch-import-paths/${id}`),
+export const productsApi = {
+  getAll: () => apiClient.get<ProductDto[]>('/products').then((r) => r.data),
+  create: (dto: Omit<ProductDto, 'id'>) => apiClient.post<ProductDto>('/products', dto).then((r) => r.data),
+  update: (id: number, dto: Omit<ProductDto, 'id'>) => apiClient.put<ProductDto>(`/products/${id}`, dto).then((r) => r.data),
+  remove: (id: number) => apiClient.delete(`/products/${id}`),
 }
 
 export const batchcutWatchPathsApi = {

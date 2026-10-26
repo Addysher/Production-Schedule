@@ -85,7 +85,7 @@ A **custom web-based production scheduler** built to replace the factory's legac
 | Hardening + gap-closing passes | Done (multi-day segments, shift breaks, station/shift/job-type editors, Schedule manually, notification badge) |
 | SCH import | Verified against three real Sapphire files (roof trusses, floor trusses, wall frames) |
 | UI/UX round (Oct 2026) | Done: appearance settings, dark mode, Calendar views + drag-and-drop + Recalculate + now line, Dashboard risk tiles with actions, login improvements |
-| Automated tests | 136 passing (unit + end-to-end integration against a real SQL Server database) |
+| Automated tests | 147 passing (unit + end-to-end integration against a real SQL Server database) |
 | PRD reader | Built and tested with synthetic files; **not yet tested against a real PaperlessJig file** |
 | Deployment | Not started (§9.5) |
 
@@ -159,7 +159,7 @@ A mix of fixed and flexible. A job pinned by an admin ("Schedule manually" or a 
   * built and unit-tested, not used by the live scheduler
 ```
 
-Five background services run inside the API process (§5.8–§5.13).
+Six background services run inside the API process (§5.8–§5.13): SCH import, MME bundler, batchcut watcher, PRD reader, nightly maintenance, and the MPS file service.
 
 ### 3.1 Domain Models
 
@@ -256,7 +256,8 @@ Every endpoint requires a valid JWT unless marked Public (a fallback policy enfo
 | `GET/POST/PUT/DELETE` | `/api/users[/{id}]`, `PUT /api/users/{id}/reset-password` | Admin | Local user accounts |
 | `GET` | `/api/settings` | Any | All Settings rows (Viewers need the theme keys) |
 | `PUT` | `/api/settings/{key}` | Admin | Update one setting |
-| `GET/POST/PUT/DELETE` | `/api/admin/sch-import-paths[/{id}]` | Admin | SCH watch folders |
+| `GET` | `/api/products` | Any | Products with pool/archive folders |
+| `POST/PUT/DELETE` | `/api/products[/{id}]` | Admin | Manage products; rename cascades; delete refused while in use (409) |
 | `GET/POST/PUT/DELETE` | `/api/admin/batchcut-watch-paths[/{id}]` | Admin | Batchcut watch folders |
 | `GET` | `/api/admin/batchcut-events?take=50` | Admin | Batchcut log |
 | `POST` | `/api/quotes/estimate` | Any | Quote estimator (§5.5) |
@@ -286,6 +287,7 @@ The Calendar is drawn straight from `ScheduleItems` + `ScheduleSegments`; there 
 | `InitialCreate` (10 Sep 2026) | Full schema from v1.0 |
 | `AddScheduleSegments` (20 Sep 2026) | Per-day split of multi-day placements |
 | `RenameLinearLengthToEqaComponents` (30 Sep 2026) | Dropped `JobMembers.LinearLengthM`; added `SetupEqA`, `ProcessEqA` |
+| `ProductsAndPoolFolders` (23 Oct 2026) | Added `Products` (filled from the component types already in use, pool folders carried over from SCH import paths); `Jobs.SchComponentType`, `Jobs.MpsStationId`; dropped `SchImportPaths` and `Jobs.SchDeletedAt` |
 
 ### 4.2 Full schema (current)
 
@@ -322,7 +324,7 @@ Stations (
   IsActive        BIT           NOT NULL,
   DisplayOrder    INT           NOT NULL,   -- Calendar column order
   DailyEqATarget  DECIMAL(10,4) NULL,       -- daily capacity; NULL = unlimited
-  ArchivePath     NVARCHAR(500) NULL        -- where finished MPS files are archived (Nightly Task 4)
+  ArchivePath     NVARCHAR(500) NULL        -- where finished MPS files are archived (§5.13)
 )
 
 -- Replaces DailyEqATarget for one station on one date.
@@ -369,8 +371,10 @@ Jobs (
   Id                      INT             IDENTITY PRIMARY KEY,
   JobRef                  NVARCHAR(50)    NOT NULL UNIQUE,   -- e.g. '60656MTG'
 
+  ComponentType           NVARCHAR(100)   NULL,   -- the job's PRODUCT (Products.Name), from its pool folder (§5.16)
+
   -- From the SCH ScheduleJob record (§5.8)
-  ComponentType           NVARCHAR(100)   NULL,
+  SchComponentType        NVARCHAR(100)   NULL,   -- field 3, kept for reference only
   ClientName              NVARCHAR(200)   NULL,
   ExpectedDeliveryDate    DATE            NULL,
   EstBookedDeliveryDate   DATE            NULL,   -- THE due date used by scheduling, Late and At risk
@@ -397,9 +401,10 @@ Jobs (
   ApprovedForCuttingAt    DATETIME2       NULL,
   ApprovedByUserId        INT             NULL REFERENCES Users(Id),
 
-  -- File paths used by the nightly tasks
-  SchSourcePath           NVARCHAR(500)   NULL,   -- final location of the processed .sch file
-  MpsSourcePath           NVARCHAR(500)   NULL,   -- set to RawFilesPath on import (§5.13)
+  -- Files (§5.13)
+  SchSourcePath           NVARCHAR(500)   NULL,   -- where the imported .sch file was archived
+  MpsSourcePath           NVARCHAR(500)   NULL,   -- the product pool folder the MPS waits in
+  MpsStationId            INT             NULL REFERENCES Stations(Id),   -- station whose DataIn holds the MPS; NULL = pool
 
   -- Manual pin (Schedule manually / Calendar drag)
   IsManuallyScheduled     BIT             NOT NULL,
@@ -412,8 +417,6 @@ Jobs (
   Delivered               BIT             NOT NULL,
   DeliveredAt             DATETIME2       NULL,
 
-  -- Nightly task tracking
-  SchDeletedAt            DATETIME2       NULL,
   MpsArchivedAt           DATETIME2       NULL,
 
   -- System
@@ -500,11 +503,12 @@ ScheduleSegments (
 #### Background-service configuration and logs
 
 ```sql
-SchImportPaths (
+-- v3.0 (replaces SchImportPaths). Name is the value Stations/JobTypes/Jobs.ComponentType hold.
+Products (
   Id              INT             IDENTITY PRIMARY KEY,
-  Name            NVARCHAR(100)   NOT NULL,
-  UncPath         NVARCHAR(500)   NOT NULL,
-  ComponentType   NVARCHAR(100)   NULL,   -- NULL = accept any job type
+  Name            NVARCHAR(100)   NOT NULL UNIQUE,
+  PoolPath        NVARCHAR(500)   NULL,   -- where SCH + MPS files arrive; NULL = not set up yet
+  ArchivePath     NVARCHAR(500)   NULL,   -- where imported SCH files are kept
   IsActive        BIT             NOT NULL
 )
 
@@ -772,7 +776,7 @@ Admin only (hidden from Viewers' sidebar; the route redirects them to the Dashbo
 | Shifts | Shift name, times and break windows |
 | Users | Create users, change role (Admin / Viewer), deactivate, reset password |
 | System Settings | **Appearance** card (§5.17) and every Settings key as an editable row |
-| SCH Import Paths | Watch folders, optionally limited to one component type (§5.16) |
+| Products | Products with their pool and archive folders (§5.16) — the first tab, since stations and job types need them |
 | Batchcut Watch Paths | Folders watched for DONE renames (§5.12) |
 | Batchcut Log | The last 50 batchcut events with status and errors |
 
@@ -799,7 +803,8 @@ Three things the v1.0 description missed, all confirmed on real files:
 
 - **Settle time:** a file is ignored until it has been unchanged for `SchFileSettleSeconds` (default 5), in case Sapphire is still writing it.
 - **Strict:** any unrecognised line rejects the whole file with a message naming the line. A partial job with a wrong EqA total is worse than a clear error.
-- **After processing**, the file is moved into a `_processed` (or `_errors`) subfolder of its import path, so it's never picked up twice. `Jobs.SchSourcePath` records the final location for Nightly Task 3.
+- **Where files come from (v3.0):** every active product's **pool folder** (§5.16). The pool decides the job's product.
+- **After processing**, the file is moved to the product's archive folder and kept (rejected files go to the pool's `_errors` subfolder), so it's never picked up twice. `Jobs.SchSourcePath` records where it was archived. SCH files are no longer deleted on completion.
 - Each import or rejection is written to `MaintenanceLogs` (`SchImport`); rejections count as errors in the badge.
 - After a poll cycle that imported anything, the scheduler runs once.
 
@@ -935,17 +940,28 @@ The Approve button currently shows on **every** `ready` job, not only those whos
 
 ### 5.13 Nightly File Management Tasks
 
-`NightlyMaintenanceService` runs once a day at `NightlyMaintenanceRunHour` (default 01:00, site time). Five independent tasks; a failure in one is logged and doesn't stop the rest. Every outcome is written to `MaintenanceLogs`.
+`NightlyMaintenanceService` runs once a day at `NightlyMaintenanceRunHour` (default 01:00, site time; admin-set). Independent tasks; a failure in one is logged and doesn't stop the rest. Every outcome is written to `MaintenanceLogs`. (Task numbers kept from v1.0; Tasks 3 and 4 were retired in v3.0.)
 
 | Task | Selects | Action |
 |---|---|---|
-| 1. MPS → DataIn | Jobs starting in `MpsPreMoveDaysBeforeProduction` days (default 1) with an `MpsSourcePath` and a station | Copies `{JobRef}__.MPS` to the station's `UncPath`; skips if already there |
+| 1. MPS → DataIn | Unstarted jobs with a station, starting within `MpsPreMoveDaysBeforeProduction` days (default 1), whose MPS is still in the pool | **Moves** the MPS from the product pool to the station's DataIn (`UncPath`). A missing MPS, or a station with no DataIn set, is logged as an error |
 | 2. Saw folders cleanup | DONE folders in `SawFilesForCuttingPath` | Moves them to `SawFilesDoneBasePath\YYYY\YYYY-MM\` (archival only; the status change already happened) |
-| 3. Delete SCH | Completed jobs with `SchDeletedAt` empty | Deletes the file at `SchSourcePath`; sets `SchDeletedAt` |
-| 4. Archive MPS | Completed jobs whose station has an `ArchivePath` and `MpsArchivedAt` empty | Moves the MPS from DataIn to the archive; already gone → logged as *skipped* |
 | 5. Retention | Older than `ScheduleRetentionMonths` (default 6): **completed** jobs by last update, schedule items by generation time, batchcut events by detection time, logs by run time | Sets `IsArchived`. Never deletes |
 
-`Jobs.MpsSourcePath` is set to `RawFilesPath` on SCH import, treating MPS files as arriving alongside the MME files. **Confirm this matches where Sapphire actually writes MPS files before go-live** (§9.5).
+#### MPS file lifecycle (v3.0)
+
+The MPS waits in the product's pool folder next to its SCH file. `Jobs.MpsStationId` records where it is (empty = still in the pool).
+
+| When | What happens | Run by |
+|---|---|---|
+| Overnight before production | Moved pool → station DataIn (Task 1) | Nightly service |
+| Job scheduled at short notice to start **today** | Moved to the station straight away | `MpsFileService` (every minute) |
+| Job rescheduled to another station while its MPS is at a station | Moved to the new station's DataIn | `MpsFileService` |
+| Job rescheduled out of range (starts after the send window) | Returned to the pool; sent again overnight before the new date | `MpsFileService` |
+| End of the shift a job completed in (after `ShiftEndHour`) | Moved DataIn → the station's `ArchivePath` | `MpsFileService` |
+| Job deleted | Archived from wherever it is: the station's archive, or the product's archive if still in the pool | Delete endpoint |
+
+Any `.mps` file named after the job (`{JobRef}.mps` or `{JobRef}_….mps`, any case) is accepted, since real MPS file names haven't been confirmed yet (§9.4).
 
 ---
 
@@ -981,14 +997,21 @@ A panel docked on the right of Dashboard, Calendar and Jobs, opened with a tab o
 
 ---
 
-### 5.16 SCH Import Path Configuration
+### 5.16 Products and pool folders *(v3.0 — replaces SCH Import Paths)*
 
-Each `SchImportPaths` row is a separately watched folder, optionally limited to one `ComponentType`. This supports a folder per product type, per building, or a catch-all alongside scoped folders.
+A **product** is what the factory makes (e.g. Roof Trusses, Floor Trusses, Wall Frames). Each has, in **Admin → Settings → Products** (the first tab):
 
-- A file from a scoped path whose component type doesn't match is rejected into that path's `_errors` subfolder (probably dropped in the wrong folder).
-- A path with no component type accepts anything.
+| Field | Meaning |
+|---|---|
+| Name | The product. Stations and job types pick it from a dropdown; renaming it renames it on every station, job type, job and setup time |
+| Pool folder | Where the design program drops this product's SCH and MPS files |
+| Archive folder | Where imported SCH files are moved and kept (and MPS files of jobs deleted before reaching a station). If empty, SCH files go to the pool's `_processed` subfolder |
+| Active | Inactive products' pools aren't read |
 
-Configured in **Admin → Settings → SCH Import Paths**.
+- **The pool decides the product**, not the SCH file's own component type. The file's value is kept (`Jobs.SchComponentType`, shown in the job popup), and a mismatch is noted in the import log entry. Names that differ only by spaces/case ("Roof Trusses" vs "RoofTrusses") count as the same.
+- A product's jobs can run on **any** active station of that product, whichever factory it's in.
+- A product in use by stations, job types or jobs can't be deleted (deactivate it instead).
+- Internally the product name is stored in the existing `ComponentType` columns, so routing, quotes and the calendar's same-product drop check work unchanged.
 
 ---
 
@@ -1061,7 +1084,7 @@ Anything an administrator may need to change is a row in the `Settings` table, e
 | `BatchcutPollIntervalSeconds` | Batchcut watcher poll | `30` |
 | `MmePollIntervalSeconds` | MME bundler poll | `300` |
 | `SchFileSettleSeconds` | Wait before reading a new .sch file | `5` |
-| `RawFilesPath` | Where Sapphire drops MME (and, assumed, MPS) files | empty — set at install |
+| `RawFilesPath` | Where Sapphire drops MME files (MPS files now arrive in the product pools, §5.16) | empty — set at install |
 | `SawFilesDoNotCutPath` | Bundles awaiting approval | empty — set at install |
 | `SawFilesForCuttingPath` | Approved bundles for the saw | empty — set at install |
 | `SawFilesDoneBasePath` | DONE archive base (`YYYY\YYYY-MM` added) | empty — set at install |
@@ -1216,7 +1239,7 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 | 7 | Dashboard station cards show current/next **job**, not current/next **member** | |
 | 8 | Shift start/end times don't shape the working window (the Settings hours do) | Two places that look like they control hours |
 | 9 | PRD reader untested against a real PaperlessJig file | Highest-value validation still outstanding |
-| 10 | `MpsSourcePath` assumed to be `RawFilesPath` | Confirm the real MPS location |
+| 10 | Real MPS file names not yet seen — any `.mps` named after the job is accepted | Confirm with a real file |
 | 11 | "Jobs late" tile means behind schedule; the sidebar "N late" means past due | Same word, two meanings |
 | 12 | Calendar blocks show LATE but no at-risk badge; Calendar data doesn't auto-refresh | |
 | 13 | No admin view of archived records | |
@@ -1252,7 +1275,7 @@ Both are also defined in `.claude/launch.json`. In Development the API applies m
 
 ### 10.2 Tests
 
-- `dotnet test` from the repo root: **136 tests** — engine and constraint unit tests, background-service tests (including the real SCH files), and the integration scenarios in §7.
+- `dotnet test` from the repo root: **147 tests** — engine and constraint unit tests, background-service tests (including the real SCH files), and the integration scenarios in §7.
 - Integration tests use the separate `ProductionSchedulerIntegration` database with background services disabled and driven explicitly.
 - Front-end changes are additionally checked in a real browser (Playwright scripts) against the running dev servers before being called done.
 - Working practice: the project owner commits; fixes are verified live and confirmed before each commit.

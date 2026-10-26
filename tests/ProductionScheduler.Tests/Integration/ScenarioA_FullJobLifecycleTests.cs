@@ -9,7 +9,9 @@ using Xunit;
 namespace ProductionScheduler.Tests.Integration;
 
 // §7 Step 8 — Scenario A: quote SCH -> finaldesign SCH -> MME bundled -> Admin approves -> DONE
-// folder detected -> PRD Trusses Made events -> completed -> nightly tasks clean up.
+// folder detected -> PRD Trusses Made events -> completed -> files cleaned up.
+// v3.0: SCH and MPS files arrive in the product's pool folder; the pool decides the product; SCH files
+// are archived on import and kept; the MPS is moved pool -> station DataIn -> station archive.
 [Collection(IntegrationCollection.Name)]
 public class ScenarioA_FullJobLifecycleTests
 {
@@ -34,37 +36,39 @@ public class ScenarioA_FullJobLifecycleTests
         await _f.WithDbAsync(db => db.Jobs.AsNoTracking().SingleAsync(j => j.JobRef == jobRef));
 
     [Fact]
-    public async Task QuoteToCompletion_DrivesEveryTransition_AndNightlyTasksCleanUp()
+    public async Task QuoteToCompletion_DrivesEveryTransition_AndFilesEndUpArchived()
     {
-        const string comp = "ScnA";
+        const string product = "ScnA";
+        const string fileSays = "SomethingElse"; // the pool decides the product, not the file
         var jobRef = "A" + Guid.NewGuid().ToString("N")[..7].ToUpperInvariant();
         var raw = _f.NewDir("raw");
         var doNotCut = _f.NewDir("donotcut");
         var forCutting = _f.NewDir("forcutting");
         var doneBase = _f.NewDir("donebase");
-        var schInbox = _f.NewDir("schinbox");
+        var pool = _f.NewDir("pool");
+        var schArchive = _f.NewDir("scharchive");
         var dataIn = _f.NewDir("datain");
         var archive = _f.NewDir("archive");
 
         await _f.SetSettingsAsync(
             ("RawFilesPath", raw), ("SawFilesDoNotCutPath", doNotCut), ("SawFilesForCuttingPath", forCutting),
             ("SawFilesDoneBasePath", doneBase), ("MpsPreMoveDaysBeforeProduction", "1"), ("ScheduleRetentionMonths", "6"));
-        var stationId = await _f.AddStationAsync("ScnA Station", comp, dataIn, archive);
+        var stationId = await _f.AddStationAsync("ScnA Station", product, dataIn, archive);
         await _f.WithDbAsync(async db =>
         {
-            db.SchImportPaths.Add(new SchImportPath { Name = "ScnA inbox", UncPath = schInbox, ComponentType = comp, IsActive = true });
+            db.Products.Add(new Product { Name = product, PoolPath = pool, ArchivePath = schArchive, IsActive = true });
             db.BatchcutWatchPaths.Add(new BatchcutWatchPath { Name = "ScnA for cutting", UncPath = forCutting, IsActive = true });
             await db.SaveChangesAsync();
         });
         var admin = await _f.ClientAsync();
-        var schFile = Path.Combine(schInbox, $"{jobRef}__.sch");
+        var schFile = Path.Combine(pool, $"{jobRef}__.sch");
 
-        // 1. Quote SCH -> job created as 'scheduled', JobOrderDate recorded.
+        // 1. Quote SCH -> job created as 'scheduled', JobOrderDate recorded, file archived (kept).
         await File.WriteAllLinesAsync(schFile, new[]
         {
-            ScheduleJobLine(jobRef, comp, "quote", "02/09/2026"),
-            ScheduleEntryLine(jobRef, comp, "E17", 60m),
-            ScheduleEntryLine(jobRef, comp, "I31", 40m),
+            ScheduleJobLine(jobRef, fileSays, "quote", "02/09/2026"),
+            ScheduleEntryLine(jobRef, fileSays, "E17", 60m),
+            ScheduleEntryLine(jobRef, fileSays, "I31", 40m),
         });
         await _f.PollSchImportAsync();
         var job = await LoadJobAsync(jobRef);
@@ -72,13 +76,18 @@ public class ScenarioA_FullJobLifecycleTests
         Assert.Equal("Quote", job.DesignStatus);
         Assert.Equal(new DateOnly(2026, 9, 2), job.JobOrderDate);
         Assert.Equal(100m, job.TotalEqA);
+        Assert.Equal(product, job.ComponentType);
+        Assert.Equal(fileSays, job.SchComponentType);
+        Assert.False(File.Exists(schFile));
+        Assert.StartsWith(schArchive, job.SchSourcePath);
+        Assert.True(File.Exists(job.SchSourcePath));
 
         // 2. finaldesign SCH (deliberately different JobOrderDate) -> 'ready', dates preserved, scheduled.
         await File.WriteAllLinesAsync(schFile, new[]
         {
-            ScheduleJobLine(jobRef, comp, "finaldesign", "01/01/2000"),
-            ScheduleEntryLine(jobRef, comp, "E17", 60m),
-            ScheduleEntryLine(jobRef, comp, "I31", 40m),
+            ScheduleJobLine(jobRef, fileSays, "finaldesign", "01/01/2000"),
+            ScheduleEntryLine(jobRef, fileSays, "E17", 60m),
+            ScheduleEntryLine(jobRef, fileSays, "I31", 40m),
         });
         await _f.PollSchImportAsync();
         job = await LoadJobAsync(jobRef);
@@ -90,15 +99,15 @@ public class ScenarioA_FullJobLifecycleTests
         var items = await _f.WithDbAsync(db => db.ScheduleItems.AsNoTracking().Where(i => i.JobRef == jobRef).ToListAsync());
         Assert.Equal(2, Assert.Single(items).MembersTotal);
 
-        // 3. MME files land in Raw Files -> bundled into DO NOT CUT. (An MPS file sits alongside them.)
+        // 3. MME files land in Raw Files -> bundled into DO NOT CUT. The MPS waits in the pool.
         await File.WriteAllTextAsync(Path.Combine(raw, $"{jobRef}E17.mme"), "cut list");
         await File.WriteAllTextAsync(Path.Combine(raw, $"{jobRef}I31.mme"), "cut list");
-        await File.WriteAllTextAsync(Path.Combine(raw, $"{jobRef}__.MPS"), "mps");
+        await File.WriteAllTextAsync(Path.Combine(pool, $"{jobRef}__.MPS"), "mps");
         await _f.PollMmeAsync();
         Assert.True(File.Exists(Path.Combine(doNotCut, jobRef, $"{jobRef}E17.mme")));
         Assert.True(File.Exists(Path.Combine(doNotCut, jobRef, $"{jobRef}I31.mme")));
 
-        // 3b. Nightly Task 1 pre-moves the MPS into the station's DataIn the day before production.
+        // 3b. Overnight, the MPS is MOVED from the pool into the station's DataIn the day before production.
         await _f.WithDbAsync(async db =>
         {
             var tracked = await db.Jobs.SingleAsync(j => j.JobRef == jobRef);
@@ -107,6 +116,8 @@ public class ScenarioA_FullJobLifecycleTests
         });
         await _f.RunNightlyAsync();
         Assert.True(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(pool, $"{jobRef}__.MPS")));
+        Assert.Equal(stationId, (await LoadJobAsync(jobRef)).MpsStationId);
 
         // 4. Admin approves for cutting -> folder moves, status 'approved', calendar shows it.
         var approve = await admin.PostAsync($"/api/jobs/{jobRef}/approve-for-cutting", null);
@@ -147,23 +158,34 @@ public class ScenarioA_FullJobLifecycleTests
         Assert.Equal(2, item.MembersCompleted);
         Assert.Equal(100m, item.EqaCompleted);
 
-        // 7. Nightly tasks after completion: SCH deleted, MPS archived, DONE folder archived, all logged.
-        var schPathBefore = job.SchSourcePath!;
-        Assert.True(File.Exists(schPathBefore), "SchSourcePath should point at the real (moved) SCH file so Task 3 can delete it.");
-        await _f.RunNightlyAsync();
+        // 7. At the end of the shift the job completed in, its MPS is archived from the station.
+        //    (The test calendar's shift runs to 24:00, so end the shift now for this check.)
+        await _f.PollMpsAsync();
+        Assert.True(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")), "not archived mid-shift");
+        await _f.SetSettingsAsync(("ShiftEndHour", "0"));
+        try
+        {
+            await _f.PollMpsAsync();
+        }
+        finally
+        {
+            await _f.SetSettingsAsync(("ShiftEndHour", "24"));
+        }
 
         job = await LoadJobAsync(jobRef);
-        Assert.False(File.Exists(schPathBefore));
-        Assert.NotNull(job.SchDeletedAt);
         Assert.False(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
         Assert.True(File.Exists(Path.Combine(archive, $"{jobRef}__.MPS")));
         Assert.NotNull(job.MpsArchivedAt);
+
+        // 8. Nightly: the DONE saw folder is archived; the archived SCH file is kept.
+        await _f.RunNightlyAsync();
+        Assert.True(File.Exists(job.SchSourcePath));
         var now = SiteClock.Now;
         Assert.True(Directory.Exists(Path.Combine(doneBase, now.Year.ToString(), $"{now.Year}-{now.Month:D2}", $"{jobRef}__DONE")));
         Assert.False(Directory.Exists(Path.Combine(forCutting, $"{jobRef}__DONE")));
 
         var logs = await _f.WithDbAsync(db => db.MaintenanceLogs.AsNoTracking().Where(l => l.JobRef == jobRef || l.SourcePath!.Contains(jobRef)).ToListAsync());
-        foreach (var task in new[] { "MpsToDatIn", "SchDelete", "MpsArchive", "SawFilesCleanup" })
+        foreach (var task in new[] { "SchImport", "MpsToDataIn", "MpsArchive", "SawFilesCleanup" })
         {
             Assert.Contains(logs, l => l.TaskName == task && l.Outcome == "success");
         }

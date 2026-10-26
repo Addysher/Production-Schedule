@@ -15,6 +15,7 @@ public class JobConfiguration : IEntityTypeConfiguration<Job>
         b.HasIndex(x => x.JobRef).IsUnique();
 
         b.Property(x => x.ComponentType).HasMaxLength(100);
+        b.Property(x => x.SchComponentType).HasMaxLength(100);
         b.Property(x => x.ClientName).HasMaxLength(200);
         b.Property(x => x.ClientRefNumber).HasMaxLength(100);
         b.Property(x => x.SiteAddress).HasMaxLength(300);
@@ -41,6 +42,11 @@ public class JobConfiguration : IEntityTypeConfiguration<Job>
         b.HasOne(x => x.ManualStation)
             .WithMany()
             .HasForeignKey(x => x.ManualStationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        b.HasOne(x => x.MpsStation)
+            .WithMany()
+            .HasForeignKey(x => x.MpsStationId)
             .OnDelete(DeleteBehavior.Restrict);
 
         b.HasOne(x => x.ApprovedByUser)

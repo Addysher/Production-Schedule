@@ -8,14 +8,12 @@ using ProductionScheduler.Domain.Entities;
 
 namespace ProductionScheduler.Scheduling.BackgroundServices;
 
-// §5.13 — runs once per day at a configurable time (default 01:00) and performs five independent
-// file-lifecycle tasks. A failure in one task is logged and does not block the others.
+// §5.13 — runs once per day at a configurable time ("NightlyMaintenanceRunHour", default 01:00) and
+// performs independent file-lifecycle tasks. A failure in one task is logged and does not block the others.
 //
-// The doc never names a Settings key for the run time itself (only "configurable, default 01:00")
-// — this uses "NightlyMaintenanceRunHour" (default 1), following the same naming convention as
-// ShiftStartHour/ShiftEndHour. Task 5 (retention) likewise has no TaskName value among the four
-// MaintenanceLogs.TaskName examples the schema comment lists — that column is a plain NVARCHAR,
-// not a constrained enum, so this logs it under "RetentionArchive".
+// v3.0: SCH files are archived at import and kept, so the old Task 3 (delete SCH on completion) is gone,
+// and MPS archiving (old Task 4) now happens at the end of the shift a job completes in (MpsFileService).
+// Task numbers are kept so §5.13 and the logs still line up.
 public class NightlyMaintenanceService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -63,10 +61,8 @@ public class NightlyMaintenanceService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        await SafeRun(db, "Task 1 — Move MPS to DataIn", () => MoveMpsToDataInAsync(db, ct), ct);
+        await SafeRun(db, "Task 1 — Move MPS to DataIn", () => MpsFiles.SendDueAsync(db, ct), ct);
         await SafeRun(db, "Task 2 — Archive DONE saw folders", () => ArchiveDoneFoldersAsync(db, ct), ct);
-        await SafeRun(db, "Task 3 — Delete SCH on completion", () => DeleteSchOnCompletionAsync(db, ct), ct);
-        await SafeRun(db, "Task 4 — Archive MPS on completion", () => ArchiveMpsOnCompletionAsync(db, ct), ct);
         await SafeRun(db, "Task 5 — Retention archiving", () => ArchiveOldRecordsAsync(db, ct), ct);
     }
 
@@ -88,46 +84,6 @@ public class NightlyMaintenanceService : BackgroundService
             });
             await db.SaveChangesAsync(ct);
         }
-    }
-
-    internal static async Task MoveMpsToDataInAsync(AppDbContext db, CancellationToken ct)
-    {
-        var preMoveDays = await SettingsReader.GetIntAsync(db, "MpsPreMoveDaysBeforeProduction", 1, ct);
-        var targetDate = DateOnly.FromDateTime(SiteClock.Now).AddDays(preMoveDays);
-
-        var jobs = await db.Jobs
-            .Include(j => j.AssignedStation)
-            .Where(j => j.MpsSourcePath != null && j.AssignedStationId != null && j.EstimatedStartDate != null
-                && j.Status != "completed" && j.MpsArchivedAt == null) // never re-stage a finished job's MPS
-            .ToListAsync(ct);
-
-        foreach (var job in jobs.Where(j => DateOnly.FromDateTime(j.EstimatedStartDate!.Value) == targetDate))
-        {
-            var sourceFile = Path.Combine(job.MpsSourcePath!, $"{job.JobRef}__.MPS");
-            var destFile = Path.Combine(job.AssignedStation!.UncPath ?? "", $"{job.JobRef}__.MPS");
-
-            var log = new MaintenanceLog { TaskName = "MpsToDatIn", JobRef = job.JobRef, SourcePath = sourceFile, DestPath = destFile, RunAt = SiteClock.Now };
-
-            if (File.Exists(destFile))
-            {
-                log.Outcome = "skipped";
-                log.Message = "Already present in station DataIn.";
-            }
-            else if (!File.Exists(sourceFile))
-            {
-                log.Outcome = "error";
-                log.Message = "Source MPS file not found.";
-            }
-            else
-            {
-                File.Copy(sourceFile, destFile);
-                log.Outcome = "success";
-            }
-
-            db.MaintenanceLogs.Add(log);
-        }
-
-        await db.SaveChangesAsync(ct);
     }
 
     internal static async Task ArchiveDoneFoldersAsync(AppDbContext db, CancellationToken ct)
@@ -168,66 +124,6 @@ public class NightlyMaintenanceService : BackgroundService
                 log.Message = ex.Message;
             }
 
-            db.MaintenanceLogs.Add(log);
-        }
-
-        await db.SaveChangesAsync(ct);
-    }
-
-    internal static async Task DeleteSchOnCompletionAsync(AppDbContext db, CancellationToken ct)
-    {
-        var jobs = await db.Jobs
-            .Where(j => j.Status == "completed" && j.SchSourcePath != null && j.SchDeletedAt == null)
-            .ToListAsync(ct);
-
-        foreach (var job in jobs)
-        {
-            var log = new MaintenanceLog { TaskName = "SchDelete", JobRef = job.JobRef, SourcePath = job.SchSourcePath, RunAt = SiteClock.Now };
-
-            if (!File.Exists(job.SchSourcePath))
-            {
-                log.Outcome = "skipped";
-                log.Message = "SCH file already gone.";
-            }
-            else
-            {
-                File.Delete(job.SchSourcePath!);
-                log.Outcome = "success";
-            }
-
-            job.SchDeletedAt = SiteClock.Now;
-            db.MaintenanceLogs.Add(log);
-        }
-
-        await db.SaveChangesAsync(ct);
-    }
-
-    internal static async Task ArchiveMpsOnCompletionAsync(AppDbContext db, CancellationToken ct)
-    {
-        var jobs = await db.Jobs
-            .Include(j => j.AssignedStation)
-            .Where(j => j.Status == "completed" && j.AssignedStationId != null && j.MpsArchivedAt == null)
-            .ToListAsync(ct);
-
-        foreach (var job in jobs.Where(j => !string.IsNullOrWhiteSpace(j.AssignedStation!.ArchivePath)))
-        {
-            var sourceFile = Path.Combine(job.AssignedStation!.UncPath ?? "", $"{job.JobRef}__.MPS");
-            var destFile = Path.Combine(job.AssignedStation.ArchivePath!, $"{job.JobRef}__.MPS");
-
-            var log = new MaintenanceLog { TaskName = "MpsArchive", JobRef = job.JobRef, SourcePath = sourceFile, DestPath = destFile, RunAt = SiteClock.Now };
-
-            if (!File.Exists(sourceFile))
-            {
-                log.Outcome = "skipped";
-                log.Message = "MPS file not found in DataIn (operator may have already moved it).";
-            }
-            else
-            {
-                File.Move(sourceFile, destFile);
-                log.Outcome = "success";
-            }
-
-            job.MpsArchivedAt = SiteClock.Now;
             db.MaintenanceLogs.Add(log);
         }
 

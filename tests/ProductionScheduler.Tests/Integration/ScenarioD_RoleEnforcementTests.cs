@@ -139,6 +139,7 @@ public class ScenarioD_RoleEnforcementTests
                      // signed-in user — every role renders the same themed UI — but writing one is still
                      // Admin-only (checked below).
                      "/api/settings",
+                     "/api/products", // product names label jobs and stations for every role
                  })
         {
             Assert.Equal(HttpStatusCode.OK, (await viewer.GetAsync(path)).StatusCode);
@@ -147,7 +148,7 @@ public class ScenarioD_RoleEnforcementTests
         foreach (var path in new[]
                  {
                      "/api/users", "/api/operators", "/api/shifts",
-                     "/api/admin/sch-import-paths", "/api/admin/batchcut-watch-paths", "/api/admin/batchcut-events",
+                     "/api/admin/batchcut-watch-paths", "/api/admin/batchcut-events",
                  })
         {
             Assert.Equal(HttpStatusCode.Forbidden, (await viewer.GetAsync(path)).StatusCode);

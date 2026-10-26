@@ -5,8 +5,11 @@ public class Job
     public int Id { get; set; }
     public string JobRef { get; set; } = null!; // e.g. '59778MWF'
 
+    // The job's product (Products.Name) — set from the pool folder its SCH file arrived in.
+    public string? ComponentType { get; set; }
+
     // From SCH ScheduleJob record
-    public string? ComponentType { get; set; } // pos 3
+    public string? SchComponentType { get; set; } // pos 3 — kept for reference; doesn't decide anything
     public string? ClientName { get; set; } // pos 4
     public DateOnly? ExpectedDeliveryDate { get; set; } // pos 5
     public DateOnly? EstBookedDeliveryDate { get; set; } // pos 6
@@ -39,9 +42,11 @@ public class Job
     public int? ApprovedByUserId { get; set; }
     public User? ApprovedByUser { get; set; }
 
-    // File source paths
-    public string? SchSourcePath { get; set; }
-    public string? MpsSourcePath { get; set; }
+    // Files
+    public string? SchSourcePath { get; set; }   // where the imported SCH file was archived
+    public string? MpsSourcePath { get; set; }   // the product pool folder the job's MPS file waits in
+    public int? MpsStationId { get; set; }       // station whose DataIn currently holds the MPS; NULL = still in the pool
+    public Station? MpsStation { get; set; }
 
     // Manual scheduling override
     public bool IsManuallyScheduled { get; set; }
@@ -55,8 +60,6 @@ public class Job
     public bool Delivered { get; set; }
     public DateTime? DeliveredAt { get; set; }
 
-    // Nightly task tracking
-    public DateTime? SchDeletedAt { get; set; }
     public DateTime? MpsArchivedAt { get; set; }
 
     // System

@@ -40,6 +40,11 @@ public class JobTypesController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<JobTypeDto>> Create(UpsertJobTypeRequest request)
     {
+        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        {
+            return BadRequest(unknown);
+        }
+
         var jobType = new JobType
         {
             Name = request.Name,
@@ -60,6 +65,11 @@ public class JobTypesController : ControllerBase
         if (jobType is null)
         {
             return NotFound();
+        }
+
+        if (await ProductValidation.UnknownProductAsync(_db, request.ComponentType) is { } unknown)
+        {
+            return BadRequest(unknown);
         }
 
         jobType.Name = request.Name;

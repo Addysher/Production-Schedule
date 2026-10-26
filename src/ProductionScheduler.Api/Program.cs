@@ -38,6 +38,7 @@ builder.Services.AddHostedService<SchImportService>();
 builder.Services.AddHostedService<BatchcutWatcherService>();
 builder.Services.AddHostedService<PrdReaderService>();
 builder.Services.AddHostedService<NightlyMaintenanceService>();
+builder.Services.AddHostedService<MpsFileService>();
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt configuration section is missing.");

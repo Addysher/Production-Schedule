@@ -64,58 +64,146 @@ public class NightlyMaintenanceServiceTests : IDisposable
         UpdatedAt = SiteClock.Now
     };
 
-    [Fact]
-    public async Task Task1_MoveMpsToDataIn_CopiesFileAndLogsSuccess()
-    {
-        var jobRef = "T1-" + Guid.NewGuid().ToString("N")[..8];
-        var mpsSourceDir = Path.Combine(_tempRoot, "raw");
-        var stationDataIn = Path.Combine(_tempRoot, "datain");
-        Directory.CreateDirectory(mpsSourceDir);
-        Directory.CreateDirectory(stationDataIn);
-        await File.WriteAllTextAsync(Path.Combine(mpsSourceDir, $"{jobRef}__.MPS"), "mps content");
+    // ---- MPS lifecycle (v3.0): pool -> station DataIn -> station archive ----
 
-        await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
-        var station = new Station { Name = "S-" + jobRef, ComponentType = "WallFrames", UncPath = stationDataIn, IsActive = true };
+    private async Task<Station> AddStationAsync(string name, string dataIn, string? archive = null)
+    {
+        var station = new Station { Name = name, ComponentType = "WallFrames", UncPath = dataIn, ArchivePath = archive, IsActive = true };
         _db.Stations.Add(station);
         await _db.SaveChangesAsync();
+        return station;
+    }
 
+    private string NewDir(string name)
+    {
+        var dir = Path.Combine(_tempRoot, name);
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private async Task<Job> AddJobAsync(string jobRef, string pool, int? stationId, DateTime? start, string status = "approved", int? mpsStationId = null)
+    {
         var job = NewJob(jobRef);
-        job.MpsSourcePath = mpsSourceDir;
-        job.AssignedStationId = station.Id;
-        job.EstimatedStartDate = SiteClock.Now.Date.AddDays(1); // tomorrow == today + 1 pre-move day
+        job.Status = status;
+        job.MpsSourcePath = pool;
+        job.AssignedStationId = stationId;
+        job.EstimatedStartDate = start;
+        job.MpsStationId = mpsStationId;
         _db.Jobs.Add(job);
         await _db.SaveChangesAsync();
+        return job;
+    }
 
-        await NightlyMaintenanceService.MoveMpsToDataInAsync(_db, default);
+    private Task<MaintenanceLog> LastLogAsync(string task, string jobRef) =>
+        _db.MaintenanceLogs.OrderByDescending(l => l.Id).FirstAsync(l => l.TaskName == task && l.JobRef == jobRef);
 
-        Assert.True(File.Exists(Path.Combine(stationDataIn, $"{jobRef}__.MPS")));
-        var log = await _db.MaintenanceLogs.OrderByDescending(l => l.Id).FirstAsync(l => l.TaskName == "MpsToDatIn" && l.JobRef == jobRef);
-        Assert.Equal("success", log.Outcome);
+    [Fact]
+    public async Task Task1_SendDue_MovesMpsFromPoolIntoStationDataIn()
+    {
+        var jobRef = "T1-" + Guid.NewGuid().ToString("N")[..8];
+        var pool = NewDir("pool");
+        var dataIn = NewDir("datain");
+        await File.WriteAllTextAsync(Path.Combine(pool, $"{jobRef}__.MPS"), "mps content");
+        await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
+        var station = await AddStationAsync("S-" + jobRef, dataIn);
+        await AddJobAsync(jobRef, pool, station.Id, SiteClock.Now.Date.AddDays(1)); // starts tomorrow
+
+        await MpsFiles.SendDueAsync(_db, default);
+
+        Assert.True(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(pool, $"{jobRef}__.MPS")), "moved, not copied");
+        Assert.Equal(station.Id, (await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef)).MpsStationId);
+        Assert.Equal("success", (await LastLogAsync("MpsToDataIn", jobRef)).Outcome);
     }
 
     [Fact]
-    public async Task Task1_SourceFileMissing_LogsError_DoesNotThrow()
+    public async Task Task1_MpsNotInPool_LogsError_DoesNotThrow()
     {
         var jobRef = "T1E-" + Guid.NewGuid().ToString("N")[..8];
-        var stationDataIn = Path.Combine(_tempRoot, "datain2");
-        Directory.CreateDirectory(stationDataIn);
-
         await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
-        var station = new Station { Name = "S-" + jobRef, ComponentType = "WallFrames", UncPath = stationDataIn, IsActive = true };
-        _db.Stations.Add(station);
+        var station = await AddStationAsync("S-" + jobRef, NewDir("datain2"));
+        await AddJobAsync(jobRef, Path.Combine(_tempRoot, "does_not_exist"), station.Id, SiteClock.Now.Date.AddDays(1));
+
+        await MpsFiles.SendDueAsync(_db, default);
+
+        Assert.Equal("error", (await LastLogAsync("MpsToDataIn", jobRef)).Outcome);
+    }
+
+    [Fact]
+    public async Task Reconcile_JobRescheduledToAnotherStation_MpsFollowsIt()
+    {
+        var jobRef = "RF-" + Guid.NewGuid().ToString("N")[..8];
+        var oldIn = NewDir("rf-old");
+        var newIn = NewDir("rf-new");
+        await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
+        var oldStation = await AddStationAsync("Old-" + jobRef, oldIn);
+        var newStation = await AddStationAsync("New-" + jobRef, newIn);
+        await File.WriteAllTextAsync(Path.Combine(oldIn, $"{jobRef}__.MPS"), "mps");
+        await AddJobAsync(jobRef, NewDir("rf-pool"), newStation.Id, SiteClock.Now.Date.AddDays(1), mpsStationId: oldStation.Id);
+
+        await MpsFiles.ReconcileAsync(_db, default);
+
+        Assert.True(File.Exists(Path.Combine(newIn, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(oldIn, $"{jobRef}__.MPS")));
+        Assert.Equal(newStation.Id, (await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef)).MpsStationId);
+    }
+
+    [Fact]
+    public async Task Reconcile_JobRescheduledOutOfRange_MpsGoesBackToThePool()
+    {
+        var jobRef = "RB-" + Guid.NewGuid().ToString("N")[..8];
+        var dataIn = NewDir("rb-datain");
+        var pool = NewDir("rb-pool");
+        await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
+        var station = await AddStationAsync("S-" + jobRef, dataIn);
+        await File.WriteAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS"), "mps");
+        await AddJobAsync(jobRef, pool, station.Id, SiteClock.Now.Date.AddDays(10), mpsStationId: station.Id); // moved to next week
+
+        await MpsFiles.ReconcileAsync(_db, default);
+
+        Assert.True(File.Exists(Path.Combine(pool, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
+        Assert.Null((await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef)).MpsStationId);
+    }
+
+    [Fact]
+    public async Task Reconcile_CompletedJob_MpsArchivedFromTheStation_OnlyAfterShiftEnd()
+    {
+        var jobRef = "CA-" + Guid.NewGuid().ToString("N")[..8];
+        var dataIn = NewDir("ca-datain");
+        var archive = NewDir("ca-archive");
+        var station = await AddStationAsync("S-" + jobRef, dataIn, archive);
+        await File.WriteAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS"), "mps");
+        await AddJobAsync(jobRef, NewDir("ca-pool"), station.Id, SiteClock.Now.Date, status: "completed", mpsStationId: station.Id);
+
+        await SetSettingAsync("ShiftEndHour", "24"); // shift still running
+        await MpsFiles.ReconcileAsync(_db, default);
+        Assert.True(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")), "left in DataIn during the shift");
+
+        await SetSettingAsync("ShiftEndHour", "0"); // shift over
+        await MpsFiles.ReconcileAsync(_db, default);
+        await SetSettingAsync("ShiftEndHour", "18");
+
+        Assert.True(File.Exists(Path.Combine(archive, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
+        Assert.NotNull((await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef)).MpsArchivedAt);
+    }
+
+    [Fact]
+    public async Task DeletedJob_MpsArchivedFromTheStation()
+    {
+        var jobRef = "DL-" + Guid.NewGuid().ToString("N")[..8];
+        var dataIn = NewDir("dl-datain");
+        var archive = NewDir("dl-archive");
+        var station = await AddStationAsync("S-" + jobRef, dataIn, archive);
+        await File.WriteAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS"), "mps");
+        var job = await AddJobAsync(jobRef, NewDir("dl-pool"), station.Id, SiteClock.Now.Date.AddDays(1), mpsStationId: station.Id);
+
+        await MpsFiles.ArchiveForDeletedJobAsync(_db, job);
         await _db.SaveChangesAsync();
 
-        var job = NewJob(jobRef);
-        job.MpsSourcePath = Path.Combine(_tempRoot, "does_not_exist");
-        job.AssignedStationId = station.Id;
-        job.EstimatedStartDate = SiteClock.Now.Date.AddDays(1);
-        _db.Jobs.Add(job);
-        await _db.SaveChangesAsync();
-
-        await NightlyMaintenanceService.MoveMpsToDataInAsync(_db, default);
-
-        var log = await _db.MaintenanceLogs.OrderByDescending(l => l.Id).FirstAsync(l => l.TaskName == "MpsToDatIn" && l.JobRef == jobRef);
-        Assert.Equal("error", log.Outcome);
+        Assert.True(File.Exists(Path.Combine(archive, $"{jobRef}__.MPS")));
+        Assert.False(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
     }
 
     [Fact]
@@ -139,56 +227,6 @@ public class NightlyMaintenanceServiceTests : IDisposable
         var expectedDest = Path.Combine(doneBase, now.Year.ToString(), $"{now.Year}-{now.Month:D2}", $"{jobRef}__DONE");
         Assert.True(Directory.Exists(expectedDest));
         Assert.True(File.Exists(Path.Combine(expectedDest, "x.mps")));
-    }
-
-    [Fact]
-    public async Task Task3_DeleteSchOnCompletion_DeletesFileAndStampsTimestamp()
-    {
-        var jobRef = "T3-" + Guid.NewGuid().ToString("N")[..8];
-        var schFile = Path.Combine(_tempRoot, $"{jobRef}__.sch");
-        await File.WriteAllTextAsync(schFile, "content");
-
-        var job = NewJob(jobRef);
-        job.Status = "completed";
-        job.SchSourcePath = schFile;
-        _db.Jobs.Add(job);
-        await _db.SaveChangesAsync();
-
-        await NightlyMaintenanceService.DeleteSchOnCompletionAsync(_db, default);
-
-        Assert.False(File.Exists(schFile));
-        var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef);
-        Assert.NotNull(refreshed.SchDeletedAt);
-        var log = await _db.MaintenanceLogs.OrderByDescending(l => l.Id).FirstAsync(l => l.TaskName == "SchDelete" && l.JobRef == jobRef);
-        Assert.Equal("success", log.Outcome);
-    }
-
-    [Fact]
-    public async Task Task4_ArchiveMpsOnCompletion_MovesFileToStationArchive_SkipsWhenMissing()
-    {
-        var jobRef = "T4-" + Guid.NewGuid().ToString("N")[..8];
-        var dataIn = Path.Combine(_tempRoot, "t4datain");
-        var archive = Path.Combine(_tempRoot, "t4archive");
-        Directory.CreateDirectory(dataIn);
-        Directory.CreateDirectory(archive);
-        await File.WriteAllTextAsync(Path.Combine(dataIn, $"{jobRef}__.MPS"), "mps");
-
-        var station = new Station { Name = "S-" + jobRef, ComponentType = "WallFrames", UncPath = dataIn, ArchivePath = archive, IsActive = true };
-        _db.Stations.Add(station);
-        await _db.SaveChangesAsync();
-
-        var job = NewJob(jobRef);
-        job.Status = "completed";
-        job.AssignedStationId = station.Id;
-        _db.Jobs.Add(job);
-        await _db.SaveChangesAsync();
-
-        await NightlyMaintenanceService.ArchiveMpsOnCompletionAsync(_db, default);
-
-        Assert.False(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
-        Assert.True(File.Exists(Path.Combine(archive, $"{jobRef}__.MPS")));
-        var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef);
-        Assert.NotNull(refreshed.MpsArchivedAt);
     }
 
     [Fact]
@@ -217,30 +255,23 @@ public class NightlyMaintenanceServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAllTasks_OneTaskFailing_DoesNotBlockTheOthers()
+    public async Task RunAllTasks_RunsTheMpsSend_EvenWhenOtherTasksHaveNothingToDo()
     {
-        // Task 3 (SCH delete) with a job whose SchSourcePath points at a directory instead of a
-        // file — File.Exists returns false so it's just logged as skipped rather than throwing,
-        // so to actually force a failure we invert this: point at a locked/invalid path pattern.
-        // Simpler and still valid: verify RunAllTasksAsync completes and logs a row for every task
-        // even when one task's Settings are entirely absent (so it no-ops rather than finding work).
         var jobRef = "T6-" + Guid.NewGuid().ToString("N")[..8];
-        var job = NewJob(jobRef);
-        job.Status = "completed";
-        job.SchSourcePath = Path.Combine(_tempRoot, $"{jobRef}__.sch");
-        await File.WriteAllTextAsync(job.SchSourcePath, "x");
-        _db.Jobs.Add(job);
+        var pool = NewDir("t6-pool");
+        var dataIn = NewDir("t6-datain");
+        await File.WriteAllTextAsync(Path.Combine(pool, $"{jobRef}__.MPS"), "mps");
+        await SetSettingAsync("MpsPreMoveDaysBeforeProduction", "1");
         await SetSettingAsync("ScheduleRetentionMonths", "6");
-        await _db.SaveChangesAsync();
+        var station = await AddStationAsync("S-" + jobRef, dataIn);
+        await AddJobAsync(jobRef, pool, station.Id, SiteClock.Now.Date.AddDays(1));
 
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<NightlyMaintenanceService>.Instance;
         var service = new NightlyMaintenanceService(new SingleContextScopeFactory(_db), logger);
 
         await service.RunAllTasksAsync(default);
 
-        // Task 3 should still have succeeded despite other tasks finding nothing to do.
-        var refreshed = await _db.Jobs.AsNoTracking().FirstAsync(j => j.JobRef == jobRef);
-        Assert.NotNull(refreshed.SchDeletedAt);
+        Assert.True(File.Exists(Path.Combine(dataIn, $"{jobRef}__.MPS")));
     }
 
     // Minimal IServiceScopeFactory that always hands back this test's own AppDbContext — avoids

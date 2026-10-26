@@ -2,35 +2,35 @@ import { useEffect, useState } from 'react'
 import {
   usersApi,
   settingsApi,
-  schImportPathsApi,
+  productsApi,
   batchcutWatchPathsApi,
 } from '../api/admin'
 import { logsApi } from '../api/logs'
 import type {
   UserDto,
   SettingDto,
-  SchImportPathDto,
+  ProductDto,
   BatchcutWatchPathDto,
 } from '../types/api'
 import type { BatchcutEventDto } from '../types/logs'
 import { JobTypesSection, ShiftsSection, StationsSection } from './SettingsTables'
 import { applyTheme, readThemeSettings, DEFAULT_PRIMARY_COLOR, DEFAULT_SECONDARY_COLOR, type ThemeMode } from '../theme/applyTheme'
 
-type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'schpaths' | 'batchpaths' | 'batchlog'
+type Tab = 'stations' | 'jobtypes' | 'shifts' | 'users' | 'settings' | 'products' | 'batchpaths' | 'batchlog'
 
 const TABS: { key: Tab; label: string }[] = [
+  { key: 'products', label: 'Products' },
   { key: 'stations', label: 'Stations' },
   { key: 'jobtypes', label: 'Job Types' },
   { key: 'shifts', label: 'Shifts' },
   { key: 'users', label: 'Users' },
   { key: 'settings', label: 'System Settings' },
-  { key: 'schpaths', label: 'SCH Import Paths' },
   { key: 'batchpaths', label: 'Batchcut Watch Paths' },
   { key: 'batchlog', label: 'Batchcut Log' },
 ]
 
 export function SettingsView() {
-  const [tab, setTab] = useState<Tab>('stations')
+  const [tab, setTab] = useState<Tab>('products')
 
   return (
     <div>
@@ -57,7 +57,7 @@ export function SettingsView() {
       {tab === 'shifts' && <ShiftsSection />}
       {tab === 'users' && <UsersSection />}
       {tab === 'settings' && <SystemSettingsSection />}
-      {tab === 'schpaths' && <SchPathsSection />}
+      {tab === 'products' && <ProductsSection />}
       {tab === 'batchpaths' && <BatchPathsSection />}
       {tab === 'batchlog' && <BatchLogSection />}
     </div>
@@ -351,65 +351,133 @@ function SystemSettingsSection() {
   )
 }
 
-function SchPathsSection() {
-  const [rows, setRows] = useState<SchImportPathDto[]>([])
-  const [form, setForm] = useState({ name: '', uncPath: '', componentType: '' })
+const serverMessage = (e: unknown, fallback: string) => {
+  const data = (e as { response?: { data?: unknown } }).response?.data
+  return typeof data === 'string' ? data : fallback
+}
 
-  const load = () => schImportPathsApi.getAll().then(setRows)
+type ProductForm = { name: string; poolPath: string; archivePath: string; isActive: boolean }
+
+const toForm = (p: ProductDto): ProductForm => ({ name: p.name, poolPath: p.poolPath ?? '', archivePath: p.archivePath ?? '', isActive: p.isActive })
+
+const toBody = (f: ProductForm) => ({
+  name: f.name.trim(),
+  poolPath: f.poolPath.trim() || null,
+  archivePath: f.archivePath.trim() || null,
+  isActive: f.isActive,
+})
+
+// v3.0: a job's product comes from the pool folder its SCH file is dropped into. Stations and job
+// types pick from these names, so renaming a product here renames it everywhere.
+function ProductsSection() {
+  const [rows, setRows] = useState<ProductDto[]>([])
+  const [edits, setEdits] = useState<Record<number, ProductForm>>({})
+  const [form, setForm] = useState<ProductForm>({ name: '', poolPath: '', archivePath: '', isActive: true })
+
+  const load = () =>
+    productsApi.getAll().then((all) => {
+      setRows(all)
+      setEdits(Object.fromEntries(all.map((p) => [p.id, toForm(p)])))
+    })
   useEffect(() => {
     load()
   }, [])
 
-  async function add() {
-    if (!form.name || !form.uncPath) return
-    await schImportPathsApi.create({ name: form.name, uncPath: form.uncPath, componentType: form.componentType || null, isActive: true })
-    setForm({ name: '', uncPath: '', componentType: '' })
-    load()
+  const editOf = (p: ProductDto) => edits[p.id] ?? toForm(p)
+  const setEdit = (p: ProductDto, patch: Partial<ProductForm>) => setEdits({ ...edits, [p.id]: { ...editOf(p), ...patch } })
+  const isDirty = (p: ProductDto) => JSON.stringify(toBody(editOf(p))) !== JSON.stringify(toBody(toForm(p)))
+
+  async function save(p: ProductDto) {
+    const next = editOf(p)
+    if (next.name.trim() !== p.name && !window.confirm(`Rename '${p.name}' to '${next.name.trim()}'? Its stations, job types and jobs are renamed too.`)) return
+    try {
+      await productsApi.update(p.id, toBody(next))
+      load()
+    } catch (e) {
+      window.alert(serverMessage(e, 'Could not save the product.'))
+    }
   }
 
-  async function remove(id: number) {
-    await schImportPathsApi.remove(id)
-    load()
+  async function add() {
+    if (!form.name.trim()) return
+    try {
+      await productsApi.create(toBody(form))
+      setForm({ name: '', poolPath: '', archivePath: '', isActive: true })
+      load()
+    } catch (e) {
+      window.alert(serverMessage(e, 'Could not add the product.'))
+    }
   }
+
+  async function remove(p: ProductDto) {
+    if (!window.confirm(`Delete '${p.name}'?`)) return
+    try {
+      await productsApi.remove(p.id)
+      load()
+    } catch (e) {
+      window.alert(serverMessage(e, 'Could not delete the product.'))
+    }
+  }
+
+  const cell = { width: '100%' }
 
   return (
     <div className="card">
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+        The design program drops each product&rsquo;s SCH and MPS files into its <b>pool folder</b>; the folder decides the product. Imported SCH files are
+        moved to the <b>archive folder</b> and kept.
+      </div>
       <table>
         <thead>
           <tr>
-            <th>Name</th>
-            <th>UNC Path</th>
-            <th>Component Type</th>
+            <th>Product</th>
+            <th>Pool folder</th>
+            <th>Archive folder</th>
+            <th>Active</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((p) => (
-            <tr key={p.id}>
-              <td>{p.name}</td>
-              <td>{p.uncPath}</td>
-              <td>{p.componentType ?? 'Any'}</td>
-              <td>
-                <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => remove(p.id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
+          {rows.map((p) => {
+            const e = editOf(p)
+            return (
+              <tr key={p.id}>
+                <td>
+                  <input style={cell} value={e.name} onChange={(ev) => setEdit(p, { name: ev.target.value })} />
+                </td>
+                <td>
+                  <input style={cell} value={e.poolPath} onChange={(ev) => setEdit(p, { poolPath: ev.target.value })} placeholder="\\server\share\pool" />
+                </td>
+                <td>
+                  <input style={cell} value={e.archivePath} onChange={(ev) => setEdit(p, { archivePath: ev.target.value })} placeholder="(pool\_processed)" />
+                </td>
+                <td>
+                  <input type="checkbox" checked={e.isActive} onChange={(ev) => setEdit(p, { isActive: ev.target.checked })} />
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-primary" style={{ padding: '2px 8px', fontSize: 12 }} disabled={!isDirty(p)} onClick={() => save(p)}>
+                      Save
+                    </button>
+                    <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => remove(p)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
           <tr>
             <td>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" />
+              <input style={cell} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Roof Trusses" />
             </td>
             <td>
-              <input value={form.uncPath} onChange={(e) => setForm({ ...form, uncPath: e.target.value })} placeholder="\\server\\share" />
+              <input style={cell} value={form.poolPath} onChange={(e) => setForm({ ...form, poolPath: e.target.value })} placeholder="\\server\share\pool" />
             </td>
             <td>
-              <input
-                value={form.componentType}
-                onChange={(e) => setForm({ ...form, componentType: e.target.value })}
-                placeholder="(any)"
-              />
+              <input style={cell} value={form.archivePath} onChange={(e) => setForm({ ...form, archivePath: e.target.value })} placeholder="\\server\share\archive" />
             </td>
+            <td />
             <td>
               <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={add}>
                 Add

@@ -28,7 +28,7 @@ export function StationsSection() {
         <thead>
           <tr>
             <th>Name</th>
-            <th>Component type</th>
+            <th>Product</th>
             <th>PRD folder</th>
             <th>Archive folder</th>
             <th>Daily EqA</th>
@@ -95,7 +95,7 @@ export function JobTypesSection() {
         <thead>
           <tr>
             <th>Name</th>
-            <th>Component type</th>
+            <th>Product</th>
             <th>Mins / unit</th>
             <th>Active</th>
             <th></th>

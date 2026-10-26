@@ -13,7 +13,8 @@ public record JobDetailDto(
     decimal? TotalEqA, decimal CompletedEqA, DateTime? EstimatedStartDate, DateTime? EstimatedCompletionDate,
     DateOnly? ExpectedDeliveryDate, DateOnly? EstBookedDeliveryDate, DateOnly? BookedDeliveryDate,
     string? InvoiceNumber, bool Delivered, string Status, bool IsLate, string DesignStatus,
-    int? AssignedStationId, bool IsManuallyScheduled, int? ManualStationId, DateOnly? ManualScheduleDate);
+    int? AssignedStationId, bool IsManuallyScheduled, int? ManualStationId, DateOnly? ManualScheduleDate,
+    string? SchComponentType);
 
 public record CreateJobRequest(
     string JobRef, string ComponentType, string? ClientName, DateOnly? ExpectedDeliveryDate,

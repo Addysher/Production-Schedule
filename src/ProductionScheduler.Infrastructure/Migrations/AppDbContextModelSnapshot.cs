@@ -195,6 +195,9 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<int?>("MpsStationId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Raw2")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
@@ -207,8 +210,9 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<DateTime?>("SchDeletedAt")
-                        .HasColumnType("datetime2");
+                    b.Property<string>("SchComponentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("SchSourcePath")
                         .HasMaxLength(500)
@@ -250,6 +254,8 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .IsUnique();
 
                     b.HasIndex("ManualStationId");
+
+                    b.HasIndex("MpsStationId");
 
                     b.HasIndex("IsManuallyScheduled", "ManualScheduleDate")
                         .HasDatabaseName("IX_Jobs_ManualSchedule");
@@ -485,7 +491,7 @@ namespace ProductionScheduler.Infrastructure.Migrations
                     b.ToTable("Precedences", (string)null);
                 });
 
-            modelBuilder.Entity("ProductionScheduler.Domain.Entities.SchImportPath", b =>
+            modelBuilder.Entity("ProductionScheduler.Domain.Entities.Product", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -493,9 +499,9 @@ namespace ProductionScheduler.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("ComponentType")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                    b.Property<string>("ArchivePath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -505,14 +511,16 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<string>("UncPath")
-                        .IsRequired()
+                    b.Property<string>("PoolPath")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
                     b.HasKey("Id");
 
-                    b.ToTable("SchImportPaths", (string)null);
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Products", (string)null);
                 });
 
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.ScheduleItem", b =>
@@ -869,11 +877,18 @@ namespace ProductionScheduler.Infrastructure.Migrations
                         .HasForeignKey("ManualStationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("ProductionScheduler.Domain.Entities.Station", "MpsStation")
+                        .WithMany()
+                        .HasForeignKey("MpsStationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("ApprovedByUser");
 
                     b.Navigation("AssignedStation");
 
                     b.Navigation("ManualStation");
+
+                    b.Navigation("MpsStation");
                 });
 
             modelBuilder.Entity("ProductionScheduler.Domain.Entities.JobMember", b =>
