@@ -1418,16 +1418,37 @@ CSV only. `GET /api/schedule/export` with optional `stationId`, `dateFrom`, `dat
 | 20 | The delivery window counts working days from the site calendar: a public holiday entered as a line closure still counts as a working day there | Planning still skips the closed day; only the window's day count is affected |
 | 21 | Rolling back the HourlyCapacityAndLineDays migration restores the columns but not their old values | Restore from a backup instead |
 
-### 9.5 Deployment checklist (not started)
+### 9.5 Deployment and updates *(decided Oct 2026; build after the remaining features and §9.2)*
 
-- Host the API as a Windows service (or IIS) with **HTTPS**.
-- Production database on SQL Server; apply migrations as a deliberate step (automatic only in Development).
-- **Replace the JWT signing key** (a development key is committed in `appsettings.json`) — or remove it with the Office 365 switch.
-- **Remove the dev `admin` / `Admin123!` account**; it is only created in Development, but no dev database should be promoted.
+**The site (confirmed by the owner):**
+- Windows Server 2025, which also holds the production network shares.
+- A licensed SQL Server that already hosts two databases: the scheduler gets its own database there.
+- Active Directory domain, internal DNS and HTTPS certificates already in place (IT is experienced).
+- The server's normal backup covers the databases.
+
+**How it runs:**
+- One server, one copy of the app: the API, the background services and the built front end (`npm run build`, served by the API) run as a **Windows Service** under a **domain service account**. That account has read/write access to the PRD, MPS, saw-file and Batchcut shares, and a login on the database.
+- Only one copy may run at a time, or two copies would process the same files.
+- Office PCs use a browser at an internal HTTPS name (e.g. `https://scheduler.<domain>`); nothing is installed on them. Kiosks run a browser in full-screen kiosk mode on their factory's kiosk URL.
+
+**To build:**
+1. **Installer:** an Inno Setup `ProductionScheduler-Setup-x.y.z.exe`, run on the server only. A first install asks for the database connection, service account, site URL and certificate, and creates the service. An upgrade:
+   - takes a database backup;
+   - stops the service;
+   - replaces the program files, keeping the server's settings file;
+   - applies the database migrations as a deliberate step (they run automatically only in Development);
+   - starts the service.
+2. **Version shown in the app** (footer and API), so everyone can see which release is running.
+3. **Rollback:** reinstall the previous setup exe and restore the backup the installer took. Migrations only go forward.
+4. Updates run outside production hours (about a minute of downtime); files that arrive meanwhile are picked up when the service restarts.
+5. The first install is done together with IT. Automated builds of the installer can come later if releases become frequent.
+
+**Go-live checklist:**
+- **Replace the JWT signing key** (a development key is committed in `appsettings.json`), or remove it with the Office 365 switch.
+- **Remove the dev `admin` / `Admin123!` account.** It is only created in Development, but no dev database should be promoted.
 - Set `Site:TimeZoneId` if the server's time zone differs from the factory's.
-- Fill in the go-live seed data (§6.3) and confirm real UNC paths and permissions for the service account.
-- Build the front end (`npm run build`) and serve it from the API or a web server.
-- Complete §9.2 (Office 365) before or during deployment.
+- Fill in the go-live seed data (§6.3), and confirm the real UNC paths and the service account's permissions.
+- Complete §9.2 (Office 365) before or during deployment; it needs the HTTPS site name for its app registration.
 
 ---
 
